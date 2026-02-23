@@ -1,0 +1,30 @@
+# Fichier sensible
+.env
+
+# Dossiers classiques à exclure
+/vendor/         # Librairies PHP (si jamais tu utilises Composer)
+/node_modules/   # Librairies JS (si tu fais du JS avec npm)
+dist/            # Fichiers générés (builds)
+build/
+.tmp/
+.cache/
+
+# Mac & Windows
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+debug.log
+
+# IDEs
+.vscode/
+.idea/
+
+# Sauvegardes et fichiers temporaires
+*.bak
+*.swp
+*.tmp
+
+# Exclure les fichiers ZIP de plugin exporté
+*.zip
