@@ -280,6 +280,7 @@ class ISPAG_Project_Dashboard {
         </div>
         <?php
     }
+    
     /**
      * Fonction de contenu pour la page de suivi des Ingénieurs / Concurrents.
      */
@@ -291,10 +292,10 @@ class ISPAG_Project_Dashboard {
         $selected_year = isset($_GET['report_year']) ? intval($_GET['report_year']) : $current_year;
 
         $liste_table = $wpdb->prefix . 'achats_liste_commande';
-        $old_table = $wpdb->prefix . 'achats_fournisseurs'; 
         $new_table = ISPAG_Crm_Company_Constants::TABLE_NAME; 
 
-        // 2. REQUÊTE SQL HYBRIDE (Ancienne vs Nouvelle table)
+        // 2. REQUÊTE SQL HYBRIDE
+        // On récupère le nom de l'entreprise et l'id de l'ingénieur
         $sql = $wpdb->prepare("
             SELECT 
                 COALESCE(f_new.company_name) AS IngenieurNom,
@@ -302,7 +303,6 @@ class ISPAG_Project_Dashboard {
                 l.ingenieur_id
             FROM 
                 {$liste_table} l
-            
             LEFT JOIN {$new_table} f_new 
                 ON (CHAR_LENGTH(CAST(l.ingenieur_id AS CHAR)) >= 5 AND f_new.viag_id = l.ingenieur_id)
             WHERE 
@@ -323,7 +323,13 @@ class ISPAG_Project_Dashboard {
         if ($results) {
             foreach ($results as $row) {
                 $engineer = trim($row->IngenieurNom);
-                if (empty($engineer) || $engineer === '0') $engineer = $non_attribue_label;
+                $eng_id = intval($row->ingenieur_id);
+
+                // Gestion des cas sans nom ou ID 0
+                if (empty($engineer) || $engineer === '0') {
+                    $engineer = $non_attribue_label;
+                    $eng_id = 0;
+                }
                 
                 $competitors_string = str_replace([';', '|'], ',', $row->EnSoumission);
                 $competitors = array_filter(array_map('trim', explode(',', $competitors_string)));
@@ -331,7 +337,11 @@ class ISPAG_Project_Dashboard {
                 if (!empty($competitors)) {
                     $total_submissions_count++; 
                     if (!isset($engineer_tracking[$engineer])) {
-                        $engineer_tracking[$engineer] = ['total_submissions' => 0, 'competitors' => []];
+                        $engineer_tracking[$engineer] = [
+                            'id' => $eng_id, // Stockage de l'ID pour le lien
+                            'total_submissions' => 0, 
+                            'competitors' => []
+                        ];
                     }
                     $engineer_tracking[$engineer]['total_submissions']++;
 
@@ -355,13 +365,13 @@ class ISPAG_Project_Dashboard {
             .ispag-stats-container { margin: 20px; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,"Helvetica Neue",sans-serif; }
             .ispag-stats-table { border-collapse: collapse; width: 100%; background: #fff; border: 1px solid #ccd0d4; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
             .ispag-stats-table thead th { background: #f8f9fa; color: #2c3338; padding: 12px 10px; border-bottom: 2px solid #d32f2f; font-size: 11px; text-transform: uppercase; text-align: center; }
-            /* Alignement gauche pour les noms */
             .ispag-stats-table th.col-name, .ispag-stats-table td.col-name { text-align: left !important; padding-left: 15px; border-right: 1px solid #eee; }
             .ispag-stats-table td { padding: 10px; border-bottom: 1px solid #f0f0f0; font-size: 13px; text-align: center; }
             .ispag-stats-table tr:hover { background-color: #fffafa !important; }
-            /* Colonne Total mise en évidence */
             .ispag-stats-table .col-total { background: #fdfdfd; font-weight: bold; color: #d32f2f; width: 80px; border-right: 1px solid #eee; }
             .ispag-stats-table .col-name { font-weight: 600; color: #333; }
+            .ispag-stats-table .col-name a { text-decoration: none; color: #0073aa; transition: color 0.2s; }
+            .ispag-stats-table .col-name a:hover { color: #d32f2f; }
             .ispag-stats-table tfoot tr { background: #32373c; color: #fff; font-weight: bold; }
             .ispag-stats-table tfoot td { padding: 12px 10px; }
             .empty-val { color: #ccc; font-size: 11px; }
@@ -370,7 +380,7 @@ class ISPAG_Project_Dashboard {
 
         <div class="wrap ispag-stats-container">
             <h1><i class="dashicons dashicons-chart-area"></i> Suivi Ingénieurs & Concurrents</h1>
-            <p>Analyse des soumissions par ingénieur et répartition des concurrents cités.</p>
+            <p>Analyse des soumissions par ingénieur et répartition des concurrents cités. Cliquez sur un nom ou un total pour voir les détails.</p>
             
             <div class="year-selector">
                 <form method="get">
@@ -397,11 +407,33 @@ class ISPAG_Project_Dashboard {
                     </thead>
                     <tbody>
                         <?php 
+                        // Tri par volume décroissant
                         uasort($engineer_tracking, function($a, $b) { return $b['total_submissions'] <=> $a['total_submissions']; });
-                        foreach ($engineer_tracking as $engineer => $data): ?>
+                        
+                        foreach ($engineer_tracking as $engineer => $data): 
+                            $has_id = (!empty($data['id']) && $data['id'] !== 0);
+                            $link = $has_id ? "https://app.ispag-asp.ch/liste-des-offres/?ingenieur_id=" . $data['id'] : "";
+                        ?>
                             <tr>
-                                <td class="col-name"><?php echo esc_html($engineer); ?></td>
-                                <td class="col-total"><?php echo $data['total_submissions']; ?></td>
+                                <td class="col-name">
+                                    <?php if ($has_id): ?>
+                                        <a href="<?php echo esc_url($link); ?>" target="_blank">
+                                            <span class="dashicons dashicons-external" style="font-size:14px; margin-right:5px; vertical-align:text-bottom;"></span>
+                                            <?php echo esc_html($engineer); ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <?php echo esc_html($engineer); ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="col-total">
+                                    <?php if ($has_id): ?>
+                                        <a href="<?php echo esc_url($link); ?>" target="_blank">
+                                            <?php echo $data['total_submissions']; ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <?php echo $data['total_submissions']; ?>
+                                    <?php endif; ?>
+                                </td>
                                 <?php foreach ($all_competitors as $competitor): 
                                     $count = $data['competitors'][$competitor] ?? 0; ?>
                                     <td>
