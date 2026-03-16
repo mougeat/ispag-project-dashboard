@@ -110,36 +110,70 @@ class ISPAG_Project_Repository {
      * @param int $year Année à analyser.
      * @return array Montant des commandes agrégées par mois.
      */
-    public function get_monthly_order_intakes($year) {
+    // public function get_monthly_order_intakes($year) {
         
+    //     $start_timestamp = strtotime("January 1st, $year 00:00:00");
+    //     $end_timestamp = strtotime("January 1st, " . ($year + 1) . " 00:00:00");
+    //     $rplp_multiplier = 1 + ($this->rplp_rate / 100); // Calcul du multiplicateur
+
+    //     $sql = $this->wpdb->prepare("
+    //         SELECT
+    //             MONTH(FROM_UNIXTIME(t1.TimestampDateCommande)) AS month_num,
+    //             SUM(t2.sales_price * t2.Qty * (1 - t2.discount / 100) * %f) AS total_intake
+    //         FROM {$this->table_projects} t1
+    //         INNER JOIN {$this->table_articles} t2 ON t1.hubspot_deal_id = t2.hubspot_deal_id
+    //         WHERE t1.isQotation IS NULL
+    //         AND t1.TimestampDateCommande >= %d
+    //         AND t1.TimestampDateCommande < %d
+    //         GROUP BY month_num
+    //         ORDER BY month_num ASC
+    //     ", $rplp_multiplier, $start_timestamp, $end_timestamp);
+
+    //     $results = $this->wpdb->get_results($sql, ARRAY_A);
+
+    //     // error_log('get_monthly_order_intakes : ' . print_r($sql, true));
+        
+    //     // Initialiser un tableau pour les 12 mois
+    //     $intakes = array_fill(1, 12, 0); 
+
+    //     foreach ($results as $row) {
+    //         $intakes[intval($row['month_num'])] = floatval($row['total_intake']);
+    //     }
+        
+    //     return $intakes;
+    // }
+    public function get_monthly_order_intakes($year) {
+        // 1. On récupère d'abord tous les projets de l'année
         $start_timestamp = strtotime("January 1st, $year 00:00:00");
         $end_timestamp = strtotime("January 1st, " . ($year + 1) . " 00:00:00");
-        $rplp_multiplier = 1 + ($this->rplp_rate / 100); // Calcul du multiplicateur
 
-        $sql = $this->wpdb->prepare("
-            SELECT
-                MONTH(FROM_UNIXTIME(t1.TimestampDateCommande)) AS month_num,
-                SUM(t2.sales_price * t2.Qty * (1 - t2.discount / 100) * %f) AS total_intake
-            FROM {$this->table_projects} t1
-            INNER JOIN {$this->table_articles} t2 ON t1.hubspot_deal_id = t2.hubspot_deal_id
-            WHERE t1.isQotation IS NULL
-            AND t1.TimestampDateCommande >= %d
-            AND t1.TimestampDateCommande < %d
-            GROUP BY month_num
-            ORDER BY month_num ASC
-        ", $rplp_multiplier, $start_timestamp, $end_timestamp);
+        $projects = $this->wpdb->get_results($this->wpdb->prepare("
+            SELECT 
+                hubspot_deal_id, 
+                MONTH(FROM_UNIXTIME(TimestampDateCommande)) AS month_num
+            FROM {$this->table_projects}
+            WHERE isQotation IS NULL
+            AND TimestampDateCommande >= %d
+            AND TimestampDateCommande < %d
+        ", $start_timestamp, $end_timestamp));
 
-        $results = $this->wpdb->get_results($sql, ARRAY_A);
+        // 2. Initialiser le tableau des 12 mois
+        $intakes = array_fill(1, 12, 0.0);
 
-        // error_log('get_monthly_order_intakes : ' . print_r($sql, true));
-        
-        // Initialiser un tableau pour les 12 mois
-        $intakes = array_fill(1, 12, 0); 
-
-        foreach ($results as $row) {
-            $intakes[intval($row['month_num'])] = floatval($row['total_intake']);
+        // 3. Boucler sur les projets et utiliser la méthode de rentabilité
+        if ($projects) {
+            foreach ($projects as $project) {
+                $month = intval($project->month_num);
+                
+                // On appelle ta méthode centralisée
+                $project_repo = new ISPAG_Project_Details_Repository();
+                $stats = $project_repo->get_project_profitability($project->hubspot_deal_id);
+                
+                // On cumule le revenu dans le bon mois
+                $intakes[$month] += floatval($stats['revenu']);
+            }
         }
-        
+
         return $intakes;
     }
     

@@ -209,7 +209,7 @@ class ISPAG_Project_Dashboard_Ajax {
             'cumulative' => $cumulative_data,
         ]);
     }
-
+ 
     /**
      * Récupère les détails des commandes reçues pour un mois spécifique (utilisé par la modal)
      */
@@ -225,22 +225,28 @@ class ISPAG_Project_Dashboard_Ajax {
 
         $projects = $this->repo->get_order_details_by_month($year, $month); 
         
-        // **Débogage de l'erreur PHP fatale**
         if (is_wp_error($projects) || $this->repo->wpdb->last_error) {
-            wp_send_json_error(['message' => 'Erreur SQL lors de la récupération des détails de commande.', 'sql_error' => $this->repo->wpdb->last_error], 500);
+            wp_send_json_error(['message' => 'Erreur SQL.', 'sql_error' => $this->repo->wpdb->last_error], 500);
             return;
         }
 
         $final_list = [];
 
         foreach ($projects as $project) {
-            $amount = floatval($project->total_intake);
+            // --- UTILISATION DE LA MÉTHODE CENTRALISÉE ---
+            // On récupère tout le package de calcul (Revenu, Coût, Gain, Marge)
+            $project_repo = new ISPAG_Project_Details_Repository();
+            $stats = $project_repo->get_project_profitability($project->hubspot_deal_id);
             
             $final_list[] = [
                 'deal_id' => $project->hubspot_deal_id,
                 'project_name' => $project->ObjetCommande,
-                'total_amount' => round($amount, 2),
-                'total_amount_formatted' => number_format($amount, 2, '.', "'") . ' CHF',
+                // On utilise le revenu calculé par notre méthode (plus fiable)
+                'total_amount' => round($stats['revenu'], 2),
+                'total_amount_formatted' => number_format($stats['revenu'], 2, '.', "'") . ' CHF',
+                // Optionnel : on peut ajouter la marge pour l'afficher dans la modal si besoin
+                'margin_percent' => round($stats['marge'], 1),
+                'margin_status' => $stats['status']
             ];
         }
 

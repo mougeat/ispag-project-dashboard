@@ -794,7 +794,7 @@ jQuery(document).ready(function($) {
     
     // GESTIONNAIRE DE CLIC pour les détails de COMMANDE (Page 'ispag-order-stats')
     $(document).on('click', '.order-detail-row', function() { 
-        const month = $(this).data('month');
+        const month = $(this).data('month'); 
         const year = $(this).data('year');
         const label = $(this).data('label');
         const total = $(this).data('total');
