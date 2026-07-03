@@ -318,7 +318,7 @@ class ISPAG_Project_Dashboard {
         $engineer_tracking = [];
         $all_competitors = [];
         $total_submissions_count = 0; 
-        $non_attribue_label = 'Non Attribué';
+        $non_attribue_label = 'Not assigned';
 
         if ($results) {
             foreach ($results as $row) {

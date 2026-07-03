@@ -174,11 +174,11 @@ jQuery(document).ready(function($) {
         $('.close-button').on('click', function() {
             $modal.fadeOut();
         });
-        $(window).on('click', function(event) {
-            if (event.target == $modal[0]) {
-                $modal.fadeOut();
-            }
-        });
+        // $(window).on('click', function(event) {
+        //     if (event.target == $modal[0]) {
+        //         $modal.fadeOut();
+        //     }
+        // });
 
         // Lancement des chargements initiaux pour la page principale
         loadDeliveryForecast();
@@ -875,23 +875,23 @@ jQuery(document).ready(function($) {
             showInvoicedDetailsModal(month, label, year, total);
         }
     });
+    
+    // GESTIONNAIRE DE FERMETURE DE LA MODAL
+    $(document).on('click', '#ispag-pd-modal .modal-close, #ispag-pd-modal .modal-backdrop', function(e) {
+        // Empêche la fermeture si on clique accidentellement sur le contenu de la modal,
+        // mais permet la fermeture sur l'arrière-plan ou le bouton.
+        if ($(e.target).hasClass('modal-close') || $(e.target).hasClass('modal-backdrop') || $(e.target).closest('.modal-content').length === 0) {
+            
+            // Cible la modal par son ID
+            $('#ispag-pd-modal').fadeOut(); 
+        }
+    });
 
-});
+    // Facultatif mais recommandé : Fermeture avec la touche Échap
+    $(document).on('keyup', function(e) {
+        if (e.key === "Escape" || e.keyCode === 27) {
+            $('#ispag-pd-modal').fadeOut();
+        }
+    });
 
-// GESTIONNAIRE DE FERMETURE DE LA MODAL
-$(document).on('click', '#ispag-pd-modal .modal-close, #ispag-pd-modal .modal-backdrop', function(e) {
-    // Empêche la fermeture si on clique accidentellement sur le contenu de la modal,
-    // mais permet la fermeture sur l'arrière-plan ou le bouton.
-    if ($(e.target).hasClass('modal-close') || $(e.target).hasClass('modal-backdrop') || $(e.target).closest('.modal-content').length === 0) {
-        
-        // Cible la modal par son ID
-        $('#ispag-pd-modal').fadeOut(); 
-    }
-});
-
-// Facultatif mais recommandé : Fermeture avec la touche Échap
-$(document).on('keyup', function(e) {
-    if (e.key === "Escape" || e.keyCode === 27) {
-        $('#ispag-pd-modal').fadeOut();
-    }
 });
