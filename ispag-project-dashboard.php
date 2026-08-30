@@ -3,7 +3,7 @@
  * Plugin Name: ISPAG - Tableau de Bord des Projets
  * Description: Fournit un tableau de bord pour suivre les projets, les livraisons (reste à livrer) et la facturation.
  * Version: 1.0.0
- * Author: Cyril Barthel (via AI Assistant)
+ * Author: Cyril Barthel
  * Author URI: #
  * Text Domain: ispag-project-dashboard
  */
@@ -37,6 +37,8 @@ function ispag_project_dashboard_init() {
     // Initialiser le Repository (qui fera les requêtes DB)
     ISPAG_Project_Repository::run();
 }
+
+add_action('init', 'ispag_load_textdomain');
 
 add_action('plugins_loaded', 'ispag_project_dashboard_init');
 

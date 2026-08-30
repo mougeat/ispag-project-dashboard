@@ -4,6 +4,7 @@ defined('ABSPATH') or die();
 class ISPAG_Project_Dashboard {
 
     protected static $instance = null;
+    protected $ajax_handler;
 
     public static function run() {
         if (self::$instance === null) {
@@ -13,122 +14,432 @@ class ISPAG_Project_Dashboard {
     }
 
     private function __construct() {
+        $this->ajax_handler = ISPAG_Project_Dashboard_Ajax::run();
+
         // Ajouter la page d'administration
         add_action('admin_menu', [$this, 'add_admin_menu']);
-        
+
         // Enregistrer les scripts et styles
         add_action('admin_enqueue_scripts', [$this, 'enqueue_scripts']);
+
+        // Ajouter les widgets au dashboard admin
+        add_action('wp_dashboard_setup', [$this, 'add_dashboard_widgets']);
+
+        // Chargement AJAX des widgets
+        add_action('wp_ajax_ispag_load_dashboard_widget', [$this, 'load_dashboard_widget_ajax']);
     }
+
+    // ======================
+    // NOUVELLES MÉTHODES POUR LE DASHBOARD ADMIN (OPTIMISÉES)
+    // ======================
+
+    /**
+     * Ajoute les widgets au dashboard admin (version légère)
+     */
+    public function add_dashboard_widgets() {
+        // Désactiver les widgets natifs de WordPress (optionnel)
+        remove_meta_box('dashboard_right_now', 'dashboard', 'normal');
+        remove_meta_box('dashboard_activity', 'dashboard', 'normal');
+        remove_meta_box('dashboard_quick_press', 'dashboard', 'side');
+        remove_meta_box('dashboard_primary', 'dashboard', 'side');
+        remove_meta_box('dashboard_secondary', 'dashboard', 'side');
+
+        // Widget pour les entrées de commande (chargé en AJAX)
+        // wp_add_dashboard_widget(
+        //     'ispag_order_intake_widget',
+        //     'Entrées de Commande (Mensuel/Cumulé)',
+        //     [$this, 'render_widget_placeholder']
+        // );
+
+        // // Widget pour les projets à facturer (chargé en AJAX)
+        // wp_add_dashboard_widget(
+        //     'ispag_projects_to_invoice_widget',
+        //     'Projets à Facturer',
+        //     [$this, 'render_widget_placeholder']
+        // );
+
+        // // Widget pour les prévisions de livraison (chargé en AJAX)
+        // wp_add_dashboard_widget(
+        //     'ispag_delivery_forecast_widget',
+        //     'Prévisions de Livraison (6 mois)',
+        //     [$this, 'render_widget_placeholder']
+        // );
+
+        // // Widget pour les statistiques de facturation (chargé en AJAX)
+        // wp_add_dashboard_widget(
+        //     'ispag_invoice_stats_widget',
+        //     'Statistiques de Facturation',
+        //     [$this, 'render_widget_placeholder']
+        // );
+    }
+
+    /**
+     * Affiche un placeholder pour les widgets (chargés en AJAX)
+     */
+    public function render_widget_placeholder() {
+        echo '<div class="ispag-widget-placeholder" style="text-align: center; padding: 20px;">';
+        echo '<span class="spinner is-active" style="float: none; margin: 0 auto;"></span>';
+        echo '<p>Chargement en cours...</p>';
+        echo '</div>';
+    }
+
+    /**
+     * Charge un widget via AJAX
+     */
+    public function load_dashboard_widget_ajax() {
+        check_ajax_referer('ispag-dashboard-nonce', 'nonce');
+
+        $widget = isset($_POST['widget']) ? sanitize_text_field($_POST['widget']) : '';
+        $year = isset($_POST['year']) ? intval($_POST['year']) : date('Y');
+
+        $response = ['success' => false, 'html' => ''];
+
+        switch ($widget) {
+            case 'order_intake':
+                $response['html'] = $this->get_order_intake_widget_html($year);
+                break;
+            case 'projects_to_invoice':
+                $response['html'] = $this->get_projects_to_invoice_widget_html();
+                break;
+            case 'delivery_forecast':
+                $response['html'] = $this->get_delivery_forecast_widget_html();
+                break;
+            case 'invoice_stats':
+                $response['html'] = $this->get_invoice_stats_widget_html($year);
+                break;
+            default:
+                $response['html'] = '<p>Widget inconnu.</p>';
+        }
+
+        $response['success'] = true;
+        wp_send_json($response);
+    }
+
+    /**
+     * Génère le HTML du widget "Prévisions de Livraison" (avec cache)
+     */
+    protected function get_delivery_forecast_widget_html() {
+        $cache_key = 'ispag_delivery_forecast_widget';
+        $html = get_transient($cache_key);
+
+        if (false === $html) {
+            $forecast = $this->ajax_handler->get_delivery_forecast(true);
+            ob_start();
+            $this->render_delivery_forecast_widget_data($forecast);
+            $html = ob_get_clean();
+            set_transient($cache_key, $html, 6 * HOUR_IN_SECONDS); // Cache pour 6 heures
+        }
+
+        return $html;
+    }
+
+    /**
+     * Affiche les données du widget "Prévisions de Livraison"
+     */
+    protected function render_delivery_forecast_widget_data($forecast) {
+        if (empty($forecast)) {
+            echo '<p>Aucune donnée disponible.</p>';
+            return;
+        }
+
+        // Limiter à 6 mois pour accélérer l'affichage
+        $forecast = array_slice($forecast, -6);
+
+        echo '<div style="height: 300px; width: 100%;">';
+        echo '<canvas id="ispag_delivery_forecast_chart"></canvas>';
+        echo '</div>';
+
+        echo '<script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const ctx = document.getElementById("ispag_delivery_forecast_chart").getContext("2d");
+                const labels = ' . json_encode(array_column($forecast, 'month_label')) . ';
+                const data = ' . json_encode(array_column($forecast, 'total_amount')) . ';
+
+                new Chart(ctx, {
+                    type: "bar",
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: "Montant à livrer (CHF)",
+                            data: data,
+                            backgroundColor: "rgba(54, 162, 235, 0.5)",
+                            borderColor: "rgba(54, 162, 235, 1)",
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: "Montant (CHF)"
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+        </script>';
+    }
+
+    /**
+     * Génère le HTML du widget "Entrées de Commande" (avec cache)
+     */
+    protected function get_order_intake_widget_html($year) {
+        $cache_key = "ispag_order_intake_widget_{$year}";
+        $html = get_transient($cache_key);
+
+        if (false === $html) {
+            $data = $this->ajax_handler->get_order_intake_stats(true, $year);
+            ob_start();
+            $this->render_order_intake_widget_data($data);
+            $html = ob_get_clean();
+            set_transient($cache_key, $html, HOUR_IN_SECONDS); // Cache pour 1 heure
+        }
+
+        return $html;
+    }
+
+    /**
+     * Affiche les données du widget "Entrées de Commande"
+     */
+    protected function render_order_intake_widget_data($data) {
+        if (empty($data['monthly'])) {
+            echo '<p>Aucune donnée disponible.</p>';
+            return;
+        }
+
+        echo '<table class="widefat">';
+        echo '<thead><tr><th>Mois</th><th>Entrées</th><th>Objectif</th><th>Écart</th></tr></thead>';
+        foreach ($data['monthly'] as $item) {
+            $ecart = $item['intake'] - $item['target'];
+            $ecart_class = $ecart >= 0 ? 'style="color: green;"' : 'style="color: red;"';
+            echo '<tr>';
+            echo '<td>' . esc_html($item['label']) . '</td>';
+            echo '<td>' . esc_html(number_format($item['intake'], 0, '.', ' ')) . '</td>';
+            echo '<td>' . esc_html(number_format($item['target'], 0, '.', ' ')) . '</td>';
+            echo '<td ' . $ecart_class . '>' . esc_html(number_format($ecart, 0, '.', ' ')) . '</td>';
+            echo '</tr>';
+        }
+        echo '</table>';
+    }
+
+    /**
+     * Génère le HTML du widget "Projets à Facturer" (avec cache)
+     */
+    protected function get_projects_to_invoice_widget_html() {
+        $cache_key = 'ispag_projects_to_invoice_widget';
+        $html = get_transient($cache_key);
+
+        if (false === $html) {
+            $projects = $this->ajax_handler->get_projects_to_invoice(true);
+            ob_start();
+            $this->render_projects_to_invoice_widget_data($projects);
+            $html = ob_get_clean();
+            set_transient($cache_key, $html, HOUR_IN_SECONDS); // Cache pour 1 heure
+        }
+
+        return $html;
+    }
+
+    /**
+     * Affiche les données du widget "Projets à Facturer"
+     */
+    protected function render_projects_to_invoice_widget_data($projects) {
+        if (empty($projects)) {
+            echo '<p>Aucun projet à facturer.</p>';
+            return;
+        }
+
+        // Limiter à 10 projets pour éviter un tableau trop long
+        $projects = array_slice($projects, 0, 10);
+
+        echo '<table class="widefat">';
+        echo '<thead><tr><th>Projet</th><th>Montant (CHF)</th></tr></thead>';
+        foreach ($projects as $project) {
+            echo '<tr>';
+            echo '<td>' . esc_html($project['project_name']) . '</td>';
+            echo '<td>' . esc_html($project['total_amount_formatted']) . '</td>';
+            echo '</tr>';
+        }
+        echo '</table>';
+
+        if (count($projects) > 10) {
+            echo '<p><em>Affichage limité aux 10 premiers projets.</em></p>';
+        }
+    }
+
+    /**
+     * Génère le HTML du widget "Statistiques de Facturation" (avec cache)
+     */
+    protected function get_invoice_stats_widget_html($year) {
+        $cache_key = "ispag_invoice_stats_widget_{$year}";
+        $html = get_transient($cache_key);
+
+        if (false === $html) {
+            $stats = $this->ajax_handler->get_invoice_stats(true, $year);
+            ob_start();
+            $this->render_invoice_stats_widget_data($stats);
+            $html = ob_get_clean();
+            set_transient($cache_key, $html, 6 * HOUR_IN_SECONDS); // Cache pour 6 heures
+        }
+
+        return $html;
+    }
+
+    /**
+     * Affiche les données du widget "Statistiques de Facturation"
+     */
+    protected function render_invoice_stats_widget_data($stats) {
+        if (empty($stats)) {
+            echo '<p>Aucune donnée disponible.</p>';
+            return;
+        }
+
+        echo '<div style="height: 300px; width: 100%;">';
+        echo '<canvas id="ispag_invoice_stats_chart"></canvas>';
+        echo '</div>';
+
+        echo '<script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const ctx = document.getElementById("ispag_invoice_stats_chart").getContext("2d");
+                const labels = ' . json_encode(array_keys($stats)) . ';
+                const data = ' . json_encode(array_values($stats)) . ';
+
+                new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: "Facturation (CHF)",
+                            data: data,
+                            borderColor: "rgb(153, 102, 255)",
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+            });
+        </script>';
+    }
+
+    // ======================
+    // MÉTHODES EXISTANTES (INCHANGÉES)
+    // ======================
 
     /**
      * Ajoute la page "Tableau de Bord Projets" dans le menu Admin
      */
     public function add_admin_menu() {
-        // add_menu_page(
-        //     __('Project ISPAG', 'creation-reservoir'),
-        //     __('Project ISPAG', 'creation-reservoir'),
-        //     'manage_options', // Capacité requise
-        //     'ispag-project-dashboard',
-        //     [$this, 'render_dashboard_page'],
-        //     'dashicons-clipboard', // Icône
-        //     20 // Position dans le menu
-        // );
         add_submenu_page(
-            'ispag_main_menu', // Parent slug
+            'ispag-entreprises',
             __('Project ISPAG', 'creation-reservoir'),
             __('Project ISPAG', 'creation-reservoir'),
-            'manage_options', // Capacité requise
+            'view_reports',
             'ispag-project-dashboard',
-            [$this, 'render_dashboard_page'],
-            
+            [$this, 'render_dashboard_page']
         );
 
         add_submenu_page(
-            'ispag_main_menu', // Parent slug
+            'ispag-entreprises',
             __('Orders', 'creation-reservoir'),
             __('Orders', 'creation-reservoir'),
-            'manage_options',
-            'ispag-order-stats', // Nouveau slug
+            'view_reports',
+            'ispag-order-stats',
             [$this, 'render_order_stats_page']
         );
 
         add_submenu_page(
-            'ispag_main_menu', // Parent slug
+            'ispag-entreprises',
             __('Invoices', 'creation-reservoir'),
             __('Invoices', 'creation-reservoir'),
-            'manage_options',
-            'ispag-invoice-stats', // Nouveau slug
+            'view_reports',
+            'ispag-invoice-stats',
             [$this, 'render_invoice_stats_page']
         );
 
         add_submenu_page(
-            'ispag_main_menu', // Parent slug
-            __('Qotations', 'creation-reservoir'),
-            __('Qotations', 'creation-reservoir'),
-            'manage_options',
-            'ispag-quotation-stats', // Nouveau slug
+            'ispag-entreprises',
+            __('Quotations', 'creation-reservoir'),
+            __('Quotations', 'creation-reservoir'),
+            'view_reports',
+            'ispag-quotation-stats',
             [$this, 'ispag_pd_quotation_stats_page_callback']
         );
+
         add_submenu_page(
-            'ispag_main_menu', // Parent slug
+            'ispag-entreprises',
             __('Supplier Follow-up', 'creation-reservoir'),
             __('Supplier Follow-up', 'creation-reservoir'),
-            'manage_options',
-            'ispag-supplier-tracking', // Nouveau slug
+            'view_reports',
+            'ispag-supplier-tracking',
             [$this, 'ispag_supplier_tracking_page_content']
-        );  
-        
+        );
+
         add_submenu_page(
-            'ispag_main_menu', // Parent slug
+            'ispag-entreprises',
             __('Engineer/Competitor Tracking', 'creation-reservoir'),
             __('Engineer/Competitor Tracking', 'creation-reservoir'),
-            'manage_options',
-            'ispag-engineer-tracking', // Nouveau slug
+            'view_reports',
+            'ispag-engineer-tracking',
             [$this, 'ispag_engineer_tracking_page_content']
-        );  
-        
+        );
     }
 
     /**
      * Affiche le contenu de la page d'administration
      */
     public function render_dashboard_page() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('view_reports')) {
             return;
         }
         include ISPAG_PD_PATH . 'classes/admin/project-dashboard-page.php';
     }
-    
+
     /**
-     * Charge les scripts et styles nécessaires (Mise à jour)
+     * Charge les scripts et styles nécessaires
      */
     public function enqueue_scripts($hook) {
-        // Charger uniquement sur les pages du tableau de bord
-        // if ('toplevel_page_ispag-project-dashboard' != $hook && 'ispag-project-dashboard_page_ispag-order-stats' != $hook) {
-        //     return; // Ne charge rien si ce n'est ni l'une ni l'autre de nos pages.
-        // }
+        $allowed_hooks = [
+            'toplevel_page_ispag-project-dashboard',
+            'ispag-project-dashboard_page_ispag-order-stats',
+            'ispag-project-dashboard_page_ispag-invoice-stats',
+            'ispag-project-dashboard_page_ispag-quotation-stats',
+            'ispag-project-dashboard_page_ispag-supplier-tracking',
+            'ispag-project-dashboard_page_ispag-engineer-tracking',
+            'index.php' // Dashboard admin
+        ];
+
+        if (!in_array($hook, $allowed_hooks)) {
+            return;
+        }
 
         // Styles
         wp_enqueue_style('ispag-pd-style', ISPAG_PD_URL . 'assets/css/style.css', array(), '1.0.0');
-        
+
         // Bibliothèque Chart.js pour les graphiques
         wp_enqueue_script('chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js', array(), '4.4.1', true);
-
 
         // Scripts
         wp_enqueue_script(
             'ispag-pd-script',
             ISPAG_PD_URL . 'assets/js/dashboard.js',
-            array('jquery', 'chart-js'), // Dépendance à Chart.js
+            array('jquery', 'chart-js'),
             '1.0.0',
-            true 
+            true
         );
 
         // Passer des variables PHP au script JS
         wp_localize_script('ispag-pd-script', 'ispagDashboard', array(
             'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('ispag-project-dashboard-nonce'),
-            'current_time' => time(),
+            'nonce' => wp_create_nonce('ispag-dashboard-nonce'),
             'current_year' => date('Y'),
         ));
     }
@@ -137,7 +448,7 @@ class ISPAG_Project_Dashboard {
      * Affiche le contenu de la page d'analyse des commandes
      */
     public function render_order_stats_page() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('view_reports')) {
             return;
         }
         include ISPAG_PD_PATH . 'classes/admin/order-stats-page.php';
@@ -147,15 +458,11 @@ class ISPAG_Project_Dashboard {
      * Affiche la page des statistiques de facturation (Invoice Stats)
      */
     public function render_invoice_stats_page() {
-        // Nous allons réutiliser le même type de page que les commandes
         $current_year = date('Y');
-        
-        // C'est une bonne pratique d'injecter des variables dans le template si besoin
         include(ISPAG_PD_PATH . 'classes/admin/invoice-stats-page.php');
     }
 
     public function ispag_pd_quotation_stats_page_callback() {
-        // Inclure votre template de page (ispag-quotation-stats-page.php)
         include_once(ISPAG_PD_PATH . 'classes/admin/ispag-quotation-stats-page.php');
     }
 
@@ -198,7 +505,7 @@ class ISPAG_Project_Dashboard {
             INNER JOIN {$type_pres_table} tp ON dp.Type = tp.Id
             INNER JOIN {$etat_cmd_table} ec ON c.EtatCommande = ec.Id
             WHERE
-                tp.prestation = 'Product' 
+                tp.prestation = 'Product'
                 AND ec.steps = 'purchase'
                 AND YEAR(FROM_UNIXTIME(c.TimestampDateCreation)) >= %d
             GROUP BY
@@ -208,7 +515,7 @@ class ISPAG_Project_Dashboard {
         ", $annee_n, $annee_n1, $annee_n2, $annee_n3, $annee_n4, $annee_n4);
 
         $results = $wpdb->get_results($sql);
-        
+
         // Initialisation des totaux
         $totals = ['n' => 0, 'n1' => 0, 'n2' => 0, 'n3' => 0, 'n4' => 0, 'global' => 0];
         ?>
@@ -228,7 +535,7 @@ class ISPAG_Project_Dashboard {
         <div class="wrap ispag-stats-container">
             <h1><i class="dashicons dashicons-chart-area"></i> Analyse Quinquennale des Volumes Produits</h1>
             <p>Evolution des quantités commandées (Type: <strong>Product</strong>) sur les 5 dernières années.</p>
-            
+
             <?php if (!empty($results)): ?>
                 <table class="ispag-table">
                     <thead>
@@ -243,7 +550,7 @@ class ISPAG_Project_Dashboard {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($results as $row): 
+                        <?php foreach ($results as $row):
                             $totals['n']  += $row->qty_n;
                             $totals['n1'] += $row->qty_n1;
                             $totals['n2'] += $row->qty_n2;
@@ -280,7 +587,7 @@ class ISPAG_Project_Dashboard {
         </div>
         <?php
     }
-    
+
     /**
      * Fonction de contenu pour la page de suivi des Ingénieurs / Concurrents.
      */
@@ -292,32 +599,31 @@ class ISPAG_Project_Dashboard {
         $selected_year = isset($_GET['report_year']) ? intval($_GET['report_year']) : $current_year;
 
         $liste_table = $wpdb->prefix . 'achats_liste_commande';
-        $new_table = ISPAG_Crm_Company_Constants::TABLE_NAME; 
+        $new_table = ISPAG_Crm_Company_Constants::TABLE_NAME;
 
         // 2. REQUÊTE SQL HYBRIDE
-        // On récupère le nom de l'entreprise et l'id de l'ingénieur
         $sql = $wpdb->prepare("
-            SELECT 
+            SELECT
                 COALESCE(f_new.company_name) AS IngenieurNom,
                 l.EnSoumission,
                 l.ingenieur_id
-            FROM 
+            FROM
                 {$liste_table} l
-            LEFT JOIN {$new_table} f_new 
+            LEFT JOIN {$new_table} f_new
                 ON (CHAR_LENGTH(CAST(l.ingenieur_id AS CHAR)) >= 5 AND f_new.viag_id = l.ingenieur_id)
-            WHERE 
+            WHERE
                 FROM_UNIXTIME(l.TimestampDateCommande, '%%Y') = %d
                 AND l.EnSoumission IS NOT NULL
                 AND l.EnSoumission != ''
             ORDER BY IngenieurNom ASC
         ", $selected_year);
-        
+
         $results = $wpdb->get_results($sql);
-        
+
         // 3. TRAITEMENT DES DONNÉES
         $engineer_tracking = [];
         $all_competitors = [];
-        $total_submissions_count = 0; 
+        $total_submissions_count = 0;
         $non_attribue_label = 'Not assigned';
 
         if ($results) {
@@ -325,21 +631,20 @@ class ISPAG_Project_Dashboard {
                 $engineer = trim($row->IngenieurNom);
                 $eng_id = intval($row->ingenieur_id);
 
-                // Gestion des cas sans nom ou ID 0
                 if (empty($engineer) || $engineer === '0') {
                     $engineer = $non_attribue_label;
                     $eng_id = 0;
                 }
-                
+
                 $competitors_string = str_replace([';', '|'], ',', $row->EnSoumission);
                 $competitors = array_filter(array_map('trim', explode(',', $competitors_string)));
-                
+
                 if (!empty($competitors)) {
-                    $total_submissions_count++; 
+                    $total_submissions_count++;
                     if (!isset($engineer_tracking[$engineer])) {
                         $engineer_tracking[$engineer] = [
-                            'id' => $eng_id, // Stockage de l'ID pour le lien
-                            'total_submissions' => 0, 
+                            'id' => $eng_id,
+                            'total_submissions' => 0,
                             'competitors' => []
                         ];
                     }
@@ -357,10 +662,11 @@ class ISPAG_Project_Dashboard {
             }
         }
         sort($all_competitors);
-        $available_years = range($current_year, $current_year - 3); 
+        $available_years = range($current_year, $current_year - 3);
 
         // 4. AFFICHAGE (CSS + HTML)
         ?>
+
         <style>
             .ispag-stats-container { margin: 20px; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,"Helvetica Neue",sans-serif; }
             .ispag-stats-table { border-collapse: collapse; width: 100%; background: #fff; border: 1px solid #ccd0d4; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -381,7 +687,7 @@ class ISPAG_Project_Dashboard {
         <div class="wrap ispag-stats-container">
             <h1><i class="dashicons dashicons-chart-area"></i> Suivi Ingénieurs & Concurrents</h1>
             <p>Analyse des soumissions par ingénieur et répartition des concurrents cités. Cliquez sur un nom ou un total pour voir les détails.</p>
-            
+
             <div class="year-selector">
                 <form method="get">
                     <input type="hidden" name="page" value="ispag-engineer-tracking" />
@@ -406,11 +712,10 @@ class ISPAG_Project_Dashboard {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php 
-                        // Tri par volume décroissant
+                        <?php
                         uasort($engineer_tracking, function($a, $b) { return $b['total_submissions'] <=> $a['total_submissions']; });
-                        
-                        foreach ($engineer_tracking as $engineer => $data): 
+
+                        foreach ($engineer_tracking as $engineer => $data):
                             $has_id = (!empty($data['id']) && $data['id'] !== 0);
                             $link = $has_id ? "https://app.ispag-asp.ch/liste-des-offres/?ingenieur_id=" . $data['id'] : "";
                         ?>
@@ -434,7 +739,7 @@ class ISPAG_Project_Dashboard {
                                         <?php echo $data['total_submissions']; ?>
                                     <?php endif; ?>
                                 </td>
-                                <?php foreach ($all_competitors as $competitor): 
+                                <?php foreach ($all_competitors as $competitor):
                                     $count = $data['competitors'][$competitor] ?? 0; ?>
                                     <td>
                                         <?php echo $count > 0 ? "<strong>$count</strong>" : '<span class="empty-val">-</span>'; ?>
@@ -447,7 +752,7 @@ class ISPAG_Project_Dashboard {
                         <tr>
                             <td class="col-name">TOTAL CUMULÉ</td>
                             <td class="col-total"><?php echo $total_submissions_count; ?></td>
-                            <?php foreach ($all_competitors as $competitor): 
+                            <?php foreach ($all_competitors as $competitor):
                                 $col_total = 0;
                                 foreach ($engineer_tracking as $data) { $col_total += $data['competitors'][$competitor] ?? 0; }
                             ?>

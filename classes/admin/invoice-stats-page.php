@@ -44,8 +44,8 @@ defined('ABSPATH') or die();
                     <thead>
                         <tr>
                             <th><?php echo esc_html__('Month', 'creation-reservoir'); ?></th>
-                            <th style="text-align: right;"><?php echo esc_html__('Cumulative Invoiced (CHF)', 'creation-reservoir'); ?></th>
-                            <th style="text-align: right;"><?php echo esc_html__('Cumulative Target (CHF)', 'creation-reservoir'); ?></th>
+                            <th style="text-align: right;"><?php echo esc_html__('Cumulative invoiced (CHF)', 'creation-reservoir'); ?></th>
+                            <th style="text-align: right;"><?php echo esc_html__('Cumulative target (CHF)', 'creation-reservoir'); ?></th>
                             <th style="text-align: right;"><?php echo esc_html__('Variance (%)', 'creation-reservoir'); ?></th>
                         </tr>
                     </thead>

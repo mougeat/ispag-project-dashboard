@@ -3,7 +3,7 @@ jQuery(document).ready(function($) {
     const nonce = ispagDashboard.nonce;
     const currentYear = ispagDashboard.current_year;
     
-    const PROJECT_URL_BASE = 'https://app.ispag-asp.ch/details-du-projet/?deal_id=';
+    const PROJECT_URL_BASE = 'https://app.ispag-asp.ch/project-detail/';
 
     // --- UTILS ---
     function formatCurrency(amount) {

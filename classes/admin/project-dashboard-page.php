@@ -23,7 +23,7 @@ defined('ABSPATH') or die();
         </div>
 
         <div id="projects-to-invoice-table" class="postbox" style="flex: 1;">
-            <h2 class="hndle"><span>💰 <?php echo esc_html__('Projects Ready to Invoice', 'creation-reservoir'); ?></span></h2> <div class="inside">
+            <h2 class="hndle"><span>💰 <?php echo esc_html__('Projects ready to Invoice', 'creation-reservoir'); ?></span></h2> <div class="inside">
                 <p><?php echo esc_html__('Items **delivered** (Livre=1) but **not invoiced** (invoiced IS NULL OR = 0).', 'creation-reservoir'); ?></p> <table class="wp-list-table widefat fixed striped">
                     <thead>
                         <tr>
@@ -42,7 +42,7 @@ defined('ABSPATH') or die();
     <div id="ispag-pd-modal" class="modal" style="display:none; position: fixed; z-index: 100000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
         <div class="modal-content" style="background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 80%; border-radius: 5px;">
             <span class="close-button" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
-            <h2><?php echo esc_html__('Projects to be Delivered in', 'creation-reservoir'); ?> <span id="modal-month-label"></span></h2> <div id="modal-content-data">
+            <h2><?php echo esc_html__('Projects to be delivered in', 'creation-reservoir'); ?> <span id="modal-month-label"></span></h2> <div id="modal-content-data">
                 <table class="wp-list-table widefat fixed striped">
                     <thead>
                         <tr>
