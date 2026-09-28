@@ -1,0 +1,282 @@
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ISPAG - Tableau de Bord des Projets\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-28 07:27+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: \n"
+"Language: \n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Loco https://localise.biz/\n"
+"X-Loco-Version: 2.8.8; wp-7.1.2; php-8.2.31\n"
+"X-Domain: ispag-project-dashboard"
+
+#. Author URI of the plugin
+msgid "#"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:210
+msgid "Access denied."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:159
+msgid "AJAX connection error (supplier statistics)."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:160
+msgid "AJAX connection error."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:168
+msgid "Amount (supplier currency)"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:187
+msgid ""
+"Amount purchased from this supplier during the year: unit price × quantity, "
+"discount deducted, in the supplier's currency. The year is the one of the "
+"order date."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:197
+msgid ""
+"Average gap between the actual receipt and the delivery date confirmed by "
+"the supplier. Positive (red) = late, negative (green) = early."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:195
+msgid ""
+"Average number of days between the order date and the actual receipt of the "
+"goods. Only lines already received are counted."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:183
+msgid "Avg. delay"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:170
+#: classes/class-ispag-supplier-dashboard.php:181
+msgid "Avg. lead time"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:179
+msgid "Avg. order value"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:180
+msgid "Avg. unit price"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:191
+msgid "Change in ordered quantity compared with the previous year."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:188
+msgid ""
+"Change in purchases compared with the previous year. Empty if the supplier "
+"had no purchases last year."
+msgstr ""
+
+#. Author of the plugin
+msgid "Cyril Barthel"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:161
+msgid "d"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:196
+msgid ""
+"Delivery lead time announced in the supplier record. Used as a reference to "
+"compare with the average lead time actually observed."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:158
+msgid "Error:"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:104
+msgid "Full supplier dashboard"
+msgstr ""
+
+#: classes/admin/supplier-stats-page.php:50
+msgid ""
+"Hover the ⓘ symbol of a column header to see how it is calculated. Click a "
+"header to sort."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:216
+msgid "Invalid year."
+msgstr ""
+
+#. Name of the plugin
+msgid "ISPAG - Project Dashboard"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:38
+#: classes/class-ispag-supplier-dashboard.php:39
+msgid "ISPAG Stats"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:101
+#: classes/class-ispag-supplier-dashboard.php:155
+#: classes/admin/supplier-stats-page.php:46
+msgid "Loading…"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:156
+msgid "No data available."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:157
+msgid "No supplier orders for this year."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:192
+msgid "Number of distinct supplier orders placed during the year."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:184
+msgid "On-time rate"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:178
+msgid "Orders"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:163
+msgid "orders"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:162
+msgid "pieces"
+msgstr ""
+
+#: classes/admin/supplier-stats-page.php:34
+msgid "Products only (excludes transport and services)"
+msgstr ""
+
+#. Description of the plugin
+msgid ""
+"Provides a dashboard to track projects, deliveries (remaining to deliver) "
+"and billing."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:173
+msgid "Purchases"
+msgstr ""
+
+#. %s: year
+#: classes/class-ispag-supplier-dashboard.php:167
+#, php-format
+msgid "Purchases %s"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:194
+msgid ""
+"Purchases divided by quantity: average price of one piece. Useful to spot a "
+"price increase from one year to the next."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:193
+msgid "Purchases divided by the number of orders: average value of an order."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:174
+msgid "Purchases evol."
+msgstr ""
+
+#: classes/admin/supplier-stats-page.php:21
+msgid ""
+"Purchases, quantities and delivery performance per supplier and per year. "
+"Amounts are shown in each supplier's own currency."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:169
+msgid "Qty"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:177
+msgid "Qty evol."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:176
+msgid "Quantity"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:175
+msgid "Share"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:198
+msgid ""
+"Share of lines received on or before the delivery date confirmed by the "
+"supplier."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:189
+msgid ""
+"Share of this supplier in the total purchases of the year, computed among "
+"suppliers using the same currency."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:224
+msgid "SQL error while computing supplier statistics."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:172
+msgid "Supplier"
+msgstr ""
+
+#: classes/admin/supplier-stats-page.php:20
+msgid "Supplier Dashboard"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:182
+msgid "Supplier lead time"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:186
+msgid ""
+"Supplier name. Only suppliers with at least one order during the year are "
+"listed."
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:51
+msgid "Suppliers"
+msgstr ""
+
+#: classes/admin/supplier-stats-page.php:41
+msgid "Suppliers overview"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:50
+msgid "Suppliers Stats"
+msgstr ""
+
+#: classes/admin/supplier-stats-page.php:56
+msgid "Top 10 suppliers by purchases (selected year vs previous year)"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:94
+msgid "Top suppliers"
+msgstr ""
+
+#. %s: currency code (CHF, EUR…)
+#: classes/class-ispag-supplier-dashboard.php:165
+#, php-format
+msgid "Total %s"
+msgstr ""
+
+#: classes/class-ispag-supplier-dashboard.php:190
+msgid "Total number of pieces ordered from this supplier during the year."
+msgstr ""
+
+#: classes/admin/supplier-stats-page.php:25
+msgid "Year"
+msgstr ""

@@ -1,0 +1,41 @@
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: ISPAG - Tableau de Bord des Projets\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-28 07:22+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: \n"
+"Language: \n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Loco https://localise.biz/\n"
+"X-Loco-Version: 2.8.8; wp-7.1.2; php-8.2.31\n"
+"X-Domain: ispag-project-dashboard"
+
+#. Author URI of the plugin
+msgctxt "#"
+msgid "#"
+msgstr ""
+
+#. Author of the plugin
+msgctxt "Cyril Barthel"
+msgid "Cyril Barthel"
+msgstr ""
+
+#. Name of the plugin
+msgctxt "ISPAG - Project Dashboard"
+msgid "ISPAG - Project Dashboard"
+msgstr ""
+
+#. Description of the plugin
+msgctxt ""
+"Provides a dashboard to track projects, deliveries (remaining to deliver) "
+"and billing."
+msgid ""
+"Provides a dashboard to track projects, deliveries (remaining to deliver) "
+"and billing."
+msgstr ""
