@@ -95,6 +95,7 @@ class ISPAG_Supplier_Repository {
               AND c.TimestampDateCreation < %d
               AND ec.steps = 'purchase'
               AND (art.archive IS NULL OR art.archive = 0)
+              AND {$this->not_service_line_sql()}
               $product_filter
             GROUP BY f.Id, f.Fournisseur, f.Monnaie, f.deliveryDays
             ORDER BY amount DESC
@@ -208,8 +209,13 @@ class ISPAG_Supplier_Repository {
             LEFT JOIN {$this->t_types} tp ON tp.Id = dp.Type";
     }
 
+    /** Exclut les lignes de frais (DED = dédouanement, TRANS = transport) : ce n'est pas du matériel commandé. */
+    protected function not_service_line_sql() {
+        return "UPPER(TRIM(COALESCE(art.RefSurMesure, ''))) NOT IN ('DED', 'TRANS')";
+    }
+
     protected function base_where($only_products) {
-        $sql = "ec.steps = 'purchase' AND (art.archive IS NULL OR art.archive = 0)";
+        $sql = "ec.steps = 'purchase' AND (art.archive IS NULL OR art.archive = 0) AND " . $this->not_service_line_sql();
         if ($only_products) {
             $sql .= " AND tp.prestation = 'Product'";
         }
