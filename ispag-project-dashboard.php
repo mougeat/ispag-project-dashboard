@@ -32,6 +32,10 @@ function ispag_pd_load_textdomain() {
 }
 add_action('plugins_loaded', 'ispag_pd_load_textdomain');
 
+// Mise à jour depuis GitHub (Outils → Updates ISPAG), comme les autres plugins ISPAG
+require_once ISPAG_PD_PATH . 'classes/class-ispag-github-updater.php';
+ISPAG_GitHub_Updater::plugin(__FILE__, 'mougeat/ispag-project-dashboard');
+
 require_once ISPAG_PD_PATH . 'classes/class-ispag-supplier-repository.php';
 require_once ISPAG_PD_PATH . 'classes/class-ispag-supplier-dashboard.php';
 
