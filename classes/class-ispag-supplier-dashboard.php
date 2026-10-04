@@ -25,6 +25,14 @@ class ISPAG_Supplier_Dashboard {
     private function __construct() {
         $this->repo = ISPAG_Supplier_Repository::run();
 
+        // 'view_reports' n'est attribué par aucun rôle : les administrateurs l'obtiennent d'office
+        add_filter('user_has_cap', function ($allcaps) {
+            if (!empty($allcaps['manage_options'])) {
+                $allcaps[self::CAPABILITY] = true;
+            }
+            return $allcaps;
+        });
+
         add_action('admin_menu', [$this, 'add_admin_menu'], 20);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_scripts']);
         add_action('wp_dashboard_setup', [$this, 'add_dashboard_widgets']);
