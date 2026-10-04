@@ -21,6 +21,7 @@ class ISPAG_Supplier_Repository {
     protected $t_orders;
     protected $t_lines;
     protected $t_suppliers;
+    protected $t_meta;
     protected $t_states;
     protected $t_details;
     protected $t_types;
@@ -38,7 +39,8 @@ class ISPAG_Supplier_Repository {
         $this->wpdb        = $wpdb;
         $this->t_orders    = $wpdb->prefix . 'achats_commande_liste_fournisseurs';
         $this->t_lines     = $wpdb->prefix . 'achats_articles_cmd_fournisseurs';
-        $this->t_suppliers = $wpdb->prefix . 'achats_fournisseurs';
+        $this->t_suppliers = $wpdb->prefix . 'ispag_companies';
+        $this->t_meta      = $wpdb->prefix . 'ispag_companies_meta';
         $this->t_states    = $wpdb->prefix . 'achats_etat_commandes_fournisseur';
         $this->t_details   = $wpdb->prefix . 'achats_details_commande';
         $this->t_types     = $wpdb->prefix . 'achats_type_prestations';
@@ -71,9 +73,9 @@ class ISPAG_Supplier_Repository {
         $sql = $this->wpdb->prepare("
             SELECT
                 f.Id AS supplier_id,
-                f.Fournisseur AS supplier_name,
-                f.Monnaie AS currency,
-                f.deliveryDays AS contractual_days,
+                f.company_name AS supplier_name,
+                MAX({$this->supplier_meta_sql('ispag_supplier_currency')}) AS currency,
+                MAX({$this->supplier_meta_sql('ispag_supplier_delivery_days')}) AS contractual_days,
                 COUNT(DISTINCT c.Id) AS orders_count,
                 SUM(art.Qty) AS qty,
                 SUM(art.UnitPrice * art.Qty * (1 - art.discount / 100)) AS amount,
@@ -97,7 +99,7 @@ class ISPAG_Supplier_Repository {
               AND (art.archive IS NULL OR art.archive = 0)
               AND {$this->not_service_line_sql()}
               $product_filter
-            GROUP BY f.Id, f.Fournisseur, f.Monnaie, f.deliveryDays
+            GROUP BY f.Id, f.company_name
             ORDER BY amount DESC
         ", $start, $end);
 
@@ -200,6 +202,13 @@ class ISPAG_Supplier_Repository {
     const LATE_MIN_ORDRE = 11;
     const LATE_MAX_ORDRE = 18;
 
+    /** Valeur d'une meta fournisseur (ispag_companies_meta) pour la ligne f ; la plus récente non vide. */
+    protected function supplier_meta_sql($meta_key) {
+        return "(SELECT m.meta_value FROM {$this->t_meta} m
+                 WHERE m.company_id = f.Id AND m.meta_key = '" . esc_sql($meta_key) . "' AND m.meta_value <> ''
+                 ORDER BY m.meta_id DESC LIMIT 1)";
+    }
+
     protected function base_from() {
         return "FROM {$this->t_orders} c
             INNER JOIN {$this->t_lines} art ON art.IdCommande = c.Id
@@ -258,7 +267,10 @@ class ISPAG_Supplier_Repository {
         $year        = (int) $year;
 
         $supplier = $this->wpdb->get_row($this->wpdb->prepare(
-            "SELECT Id, Fournisseur, Monnaie, deliveryDays FROM {$this->t_suppliers} WHERE Id = %d",
+            "SELECT f.Id, f.company_name AS Fournisseur,
+                {$this->supplier_meta_sql('ispag_supplier_currency')} AS Monnaie,
+                {$this->supplier_meta_sql('ispag_supplier_delivery_days')} AS deliveryDays
+             FROM {$this->t_suppliers} f WHERE f.Id = %d",
             $supplier_id
         ), ARRAY_A);
         if ($this->wpdb->last_error) {
@@ -500,8 +512,8 @@ class ISPAG_Supplier_Repository {
         $sql = $this->wpdb->prepare("
             SELECT
                 f.Id AS supplier_id,
-                f.Fournisseur AS supplier_name,
-                f.Monnaie AS currency,
+                f.company_name AS supplier_name,
+                {$this->supplier_meta_sql('ispag_supplier_currency')} AS currency,
                 c.Id AS order_id,
                 c.NrCommande AS order_number,
                 ec.Etat AS state,
