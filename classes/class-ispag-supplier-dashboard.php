@@ -48,8 +48,18 @@ class ISPAG_Supplier_Dashboard {
     // ------------------------------------------------------------------
 
     public function add_admin_menu() {
+        // Menu principal « ISPAG stats » : la page Suppliers en est la première entrée
+        add_menu_page(
+            __('ISPAG stats', 'ispag-dashboard'),
+            __('ISPAG stats', 'ispag-dashboard'),
+            self::CAPABILITY,
+            self::PAGE_SLUG,
+            [$this, 'render_page'],
+            'dashicons-chart-bar',
+            7
+        );
         add_submenu_page(
-            'ispag-entreprises',
+            self::PAGE_SLUG,
             __('Suppliers', 'ispag-dashboard'),
             __('Suppliers', 'ispag-dashboard'),
             self::CAPABILITY,
