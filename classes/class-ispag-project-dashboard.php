@@ -23,6 +23,55 @@ class ISPAG_Project_Dashboard {
         $this->repo = ISPAG_Project_Repository::run();
         // Priorité 21 : le menu parent « ISPAG stats » est créé à la priorité 20 par ISPAG_Supplier_Dashboard
         add_action('admin_menu', [$this, 'add_admin_menu'], 21);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_scripts']);
+    }
+
+    public function enqueue_scripts($hook) {
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        if ($page !== self::PAGE_SLUG || !current_user_can(ISPAG_Supplier_Dashboard::CAPABILITY)) {
+            return;
+        }
+        // Même handle que le dashboard fournisseurs : chargé une seule fois
+        wp_enqueue_script('chart-js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js', [], '4.4.1', true);
+    }
+
+    /** Données des graphiques, calculées à partir des lignes du tableau. */
+    protected function chart_data(array $projects) {
+        $months = array_fill(1, 12, ['sold' => 0.0, 'invoiced' => 0.0]);
+        foreach ($projects as $r) {
+            if ($r['ordered_at']) {
+                $m = (int) wp_date('n', $r['ordered_at']);
+                $months[$m]['sold']     += $r['sales_total'];
+                $months[$m]['invoiced'] += $r['invoiced'];
+            }
+        }
+        $label = function ($r) {
+            return $r['number'] !== '' ? $r['number'] : '#' . $r['deal_id'];
+        };
+
+        $by_margin = $projects;
+        usort($by_margin, function ($a, $b) { return $b['margin'] <=> $a['margin']; });
+        $by_margin = array_slice(array_filter($by_margin, function ($r) { return $r['sales_total'] > 0; }), 0, 10);
+
+        $open = array_filter($projects, function ($r) { return $r['remaining_lines'] > 0; });
+        usort($open, function ($a, $b) { return $b['remaining_lines'] <=> $a['remaining_lines']; });
+        $open = array_slice($open, 0, 10);
+
+        return [
+            'months'   => array_map(function ($i) { return wp_date('M', mktime(0, 0, 0, $i, 1, 2000)); }, range(1, 12)),
+            'sold'     => array_map(function ($m) { return round($m['sold'], 2); }, array_values($months)),
+            'invoiced' => array_map(function ($m) { return round($m['invoiced'], 2); }, array_values($months)),
+            'margin'   => [
+                'labels' => array_map($label, array_values($by_margin)),
+                'values' => array_map(function ($r) { return $r['margin']; }, array_values($by_margin)),
+            ],
+            'delivery' => [
+                'labels'    => array_map($label, $open),
+                'delivered' => array_map(function ($r) { return $r['delivered_lines']; }, $open),
+                'pending'   => array_map(function ($r) { return $r['remaining_lines'] - $r['late_lines']; }, $open),
+                'late'      => array_map(function ($r) { return $r['late_lines']; }, $open),
+            ],
+        ];
     }
 
     public function add_admin_menu() {
@@ -67,6 +116,11 @@ class ISPAG_Project_Dashboard {
             .ispag-pj-bar i { display: block; height: 6px; border-radius: 3px; background: #2271b1; }
             .ispag-pj-late { color: #b32d2e; font-weight: 600; }
             .ispag-pj-neg { color: #b32d2e; }
+            .ispag-pj-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin: 0 0 20px; }
+            .ispag-pj-card { background: #fff; border: 1px solid #dcdcde; border-radius: 4px; padding: 12px 16px 14px; }
+            .ispag-pj-card h2 { font-size: 14px; margin: 0 0 2px; padding: 0; }
+            .ispag-pj-card p { margin: 0 0 8px; color: #50575e; font-size: 12px; }
+            .ispag-pj-canvas { position: relative; height: 280px; }
         </style>
         <div class="wrap">
             <h1><?php echo esc_html__('Project follow-up', 'ispag-dashboard'); ?> 📋</h1>
@@ -116,6 +170,27 @@ class ISPAG_Project_Dashboard {
                         /* translators: 1: number of lines, 2: currency */
                         echo esc_html(sprintf(__('%1$d purchase line(s) are in a currency other than %2$s and are not converted: the cost and margin of those projects are approximate.', 'ispag-dashboard'), $t['foreign_lines'], $cur)); ?></p>
                 <?php endif; ?>
+
+                <?php $charts = $this->chart_data($data['projects']); ?>
+                <div class="ispag-pj-charts">
+                    <?php if ($prices) : ?>
+                    <div class="ispag-pj-card">
+                        <h2><?php echo esc_html__('Sold vs invoiced, by order month', 'ispag-dashboard'); ?></h2>
+                        <p><?php echo esc_html(sprintf(__('Amounts in %s. Invoiced amounts are attributed to the month the project was ordered.', 'ispag-dashboard'), $cur)); ?></p>
+                        <div class="ispag-pj-canvas"><canvas id="ispag-pj-chart-sales" role="img" aria-label="<?php echo esc_attr__('Sold vs invoiced by month', 'ispag-dashboard'); ?>"></canvas></div>
+                    </div>
+                    <div class="ispag-pj-card">
+                        <h2><?php echo esc_html__('Margin, top 10 projects', 'ispag-dashboard'); ?></h2>
+                        <p><?php echo esc_html(sprintf(__('Sold minus purchase cost, in %s.', 'ispag-dashboard'), $cur)); ?></p>
+                        <div class="ispag-pj-canvas"><canvas id="ispag-pj-chart-margin" role="img" aria-label="<?php echo esc_attr__('Margin of the top 10 projects', 'ispag-dashboard'); ?>"></canvas></div>
+                    </div>
+                    <?php endif; ?>
+                    <div class="ispag-pj-card">
+                        <h2><?php echo esc_html__('Deliveries, projects with the most lines left', 'ispag-dashboard'); ?></h2>
+                        <p><?php echo esc_html__('Number of project lines: delivered, still to deliver, and late.', 'ispag-dashboard'); ?></p>
+                        <div class="ispag-pj-canvas"><canvas id="ispag-pj-chart-delivery" role="img" aria-label="<?php echo esc_attr__('Delivery status of the projects with the most lines left', 'ispag-dashboard'); ?>"></canvas></div>
+                    </div>
+                </div>
 
                 <table class="widefat striped" id="ispag-pj-table">
                     <thead><tr>
@@ -172,6 +247,50 @@ class ISPAG_Project_Dashboard {
                 <p class="description"><?php echo esc_html__('Click a column header to sort. Quantities exclude transport and customs lines; costs include them.', 'ispag-dashboard'); ?></p>
             <?php endif; ?>
         </div>
+        <?php if (!is_wp_error($data)) : ?>
+        <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof Chart === 'undefined') return;
+            var D = <?php echo wp_json_encode($charts); ?>;
+            var CUR = <?php echo wp_json_encode($cur); ?>;
+            var C1 = '#2a78d6', C2 = '#eb6834', C3 = '#1baf7a';   // palette catégorielle validée (clair)
+            var INK = '#50575e', GRID = '#e6e6e6';
+            var fmt = function (v) { return Number(v).toLocaleString('fr-CH', {maximumFractionDigits: 0}) + ' ' + CUR; };
+            var base = {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: INK, boxWidth: 12, boxHeight: 12 } } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: INK } },
+                    y: { grid: { color: GRID }, ticks: { color: INK }, beginAtZero: true }
+                }
+            };
+            var bar = function (id, cfg) { var el = document.getElementById(id); if (el) new Chart(el.getContext('2d'), cfg); };
+            var ds = function (label, data, color, extra) {
+                return Object.assign({ label: label, data: data, backgroundColor: color, borderColor: color, borderWidth: 0,
+                    borderRadius: 4, maxBarThickness: 26 }, extra || {});
+            };
+            var money = { tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + fmt(c.parsed.y !== undefined && c.chart.options.indexAxis !== 'y' ? c.parsed.y : c.parsed.x); } } } };
+
+            bar('ispag-pj-chart-sales', { type: 'bar',
+                data: { labels: D.months, datasets: [ds('<?php echo esc_js(__('Sold', 'ispag-dashboard')); ?>', D.sold, C1), ds('<?php echo esc_js(__('Invoiced', 'ispag-dashboard')); ?>', D.invoiced, C2)] },
+                options: Object.assign({}, base, { plugins: Object.assign({}, base.plugins, money) }) });
+
+            bar('ispag-pj-chart-margin', { type: 'bar',
+                data: { labels: D.margin.labels, datasets: [ds('<?php echo esc_js(__('Margin', 'ispag-dashboard')); ?>', D.margin.values, C1)] },
+                options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                    plugins: Object.assign({}, base.plugins, { legend: { display: false } }, money),
+                    scales: { x: { grid: { color: GRID }, ticks: { color: INK } }, y: { grid: { display: false }, ticks: { color: INK } } } } });
+
+            bar('ispag-pj-chart-delivery', { type: 'bar',
+                data: { labels: D.delivery.labels, datasets: [
+                    ds('<?php echo esc_js(__('Delivered', 'ispag-dashboard')); ?>', D.delivery.delivered, C1, { stack: 's', borderRadius: 0, borderColor: '#fff', borderWidth: 1 }),
+                    ds('<?php echo esc_js(__('To deliver', 'ispag-dashboard')); ?>', D.delivery.pending, C3, { stack: 's', borderRadius: 0, borderColor: '#fff', borderWidth: 1 }),
+                    ds('<?php echo esc_js(__('Late', 'ispag-dashboard')); ?>', D.delivery.late, C2, { stack: 's', borderRadius: 0, borderColor: '#fff', borderWidth: 1 })] },
+                options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: base.plugins,
+                    scales: { x: { stacked: true, grid: { color: GRID }, ticks: { color: INK, precision: 0 } }, y: { stacked: true, grid: { display: false }, ticks: { color: INK } } } } });
+        });
+        </script>
+        <?php endif; ?>
         <script>
         (function () {
             var table = document.getElementById('ispag-pj-table');
