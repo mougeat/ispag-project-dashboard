@@ -543,6 +543,9 @@ class ISPAG_Monthly_Report {
             #ispag-mr-modal h2 { margin: 0; font-size: 16px; }
             .ispag-mr-modal-close { font-size: 26px; line-height: 1; cursor: pointer; color: #787c82; padding: 0 6px; border: 0; background: none; }
             #ispag-mr-modal .num { text-align: right; white-space: nowrap; }
+            #ispag-mr-modal .pj-name { font-size: 14px; font-weight: 600; line-height: 1.35; }
+            #ispag-mr-modal .pj-num { font-size: 12px; color: #646970; margin-top: 2px; }
+            #ispag-mr-modal td a { white-space: nowrap; }
             .ispag-mr-up { color: #00a32a; } .ispag-mr-down { color: #b32d2e; }
         </style>
         <div class="wrap">
@@ -641,7 +644,7 @@ class ISPAG_Monthly_Report {
                     h += '<table class="widefat striped"><thead><tr><th><?php echo esc_js(__('Project', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Customer', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Document', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Date', 'ispag-dashboard')); ?></th>'
                         + (d.money ? '<th class="num"><?php echo esc_js(__('Amount', 'ispag-dashboard')); ?></th>' : '') + '<th></th></tr></thead><tbody>';
                     d.rows.forEach(function (r) {
-                        h += '<tr><td><strong>' + esc(r.num) + '</strong><br><small>' + esc(r.name) + '</small></td><td>' + esc(r.customer) + '</td><td>' + esc(r.type) + (r.ref ? '<br><small>' + esc(r.ref) + '</small>' : '') + '</td><td>' + esc(r.date) + '</td>'
+                        h += '<tr><td><div class="pj-name">' + esc(r.name || r.num) + '</div>' + (r.name && r.num ? '<div class="pj-num">' + esc(r.num) + '</div>' : '') + '</td><td>' + esc(r.customer) + '</td><td>' + esc(r.type) + (r.ref ? '<br><small>' + esc(r.ref) + '</small>' : '') + '</td><td>' + esc(r.date) + '</td>'
                             + (d.money ? '<td class="num">' + money(r.amount) + '</td>' : '')
                             + '<td><a href="' + esc(r.url) + '" target="_blank" rel="noopener"><?php echo esc_js(__('Open', 'ispag-dashboard')); ?> ↗</a></td></tr>';
                     });
