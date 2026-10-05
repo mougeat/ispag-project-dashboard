@@ -10,7 +10,8 @@ class ISPAG_Supplier_Dashboard {
 
     const PAGE_SLUG    = 'ispag-supplier-stats';
     const NONCE_ACTION = 'ispag-supplier-nonce';
-    const CAPABILITY   = 'view_reports';
+    const CAPABILITY   = 'view_stats';   // voir les pages « ISPAG stats » (droit déclaré dans ISPAG → Rights)
+    const EDIT_CAPABILITY = 'edit_stats'; // saisir les objectifs et les notes de crédit du rapport mensuel
 
     protected static $instance = null;
     protected $repo;
@@ -25,10 +26,11 @@ class ISPAG_Supplier_Dashboard {
     private function __construct() {
         $this->repo = ISPAG_Supplier_Repository::run();
 
-        // 'view_reports' n'est attribué par aucun rôle : les administrateurs l'obtiennent d'office
+        // Repli : les administrateurs ont toujours ces droits, même si le registre « ISPAG → Rights » n'est pas actif
         add_filter('user_has_cap', function ($allcaps) {
             if (!empty($allcaps['manage_options'])) {
-                $allcaps[self::CAPABILITY] = true;
+                $allcaps[self::CAPABILITY]      = true;
+                $allcaps[self::EDIT_CAPABILITY] = true;
             }
             return $allcaps;
         });

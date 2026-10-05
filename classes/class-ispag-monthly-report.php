@@ -281,7 +281,7 @@ class ISPAG_Monthly_Report {
     // ------------------------------------------------------------------ enregistrement & export
 
     public function handle_save() {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can(ISPAG_Supplier_Dashboard::EDIT_CAPABILITY) || !current_user_can('display_sales_prices')) {
             wp_die(esc_html__('Access denied.', 'ispag-dashboard'), '', ['response' => 403]);
         }
         check_admin_referer('ispag_pd_save_monthly');
@@ -599,7 +599,7 @@ class ISPAG_Monthly_Report {
         $r       = $this->report($year);
         $years   = $r['years'];
         $prices  = $r['prices'];
-        $can_edit = $prices && current_user_can('manage_options');
+        $can_edit = $prices && current_user_can(ISPAG_Supplier_Dashboard::EDIT_CAPABILITY);
         $cur     = strtoupper(trim((string) get_option('wpcb_currency', 'CHF'))) ?: 'CHF';
         $prev    = $year - 1;
         ?>
