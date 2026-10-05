@@ -42,6 +42,7 @@ class ISPAG_Monthly_Report {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_scripts']);
         add_action('admin_post_ispag_pd_save_monthly', [$this, 'handle_save']);
         add_action('admin_post_ispag_pd_export_monthly', [$this, 'handle_export']);
+        add_action('wp_ajax_ispag_pd_monthly_detail', [$this, 'ajax_detail']);
     }
 
     public function add_admin_menu() {
@@ -292,6 +293,129 @@ class ISPAG_Monthly_Report {
         exit;
     }
 
+    // ------------------------------------------------------------------ détail d'une cellule (fenêtre au clic)
+
+    /** Bornes [du, au[ (dates Y-m-d) d'un mois, ou de l'année entière si $month vaut 0. */
+    protected function range($year, $month) {
+        if ($month >= 1 && $month <= 12) {
+            $from = sprintf('%d-%02d-01', $year, $month);
+            $to   = $month === 12 ? ($year + 1) . '-01-01' : sprintf('%d-%02d-01', $year, $month + 1);
+        } else {
+            $from = $year . '-01-01';
+            $to   = ($year + 1) . '-01-01';
+        }
+        return [$from, $to];
+    }
+
+    /**
+     * Lignes qui composent un chiffre du tableau. Mêmes filtres que les agrégats ci-dessus.
+     * @return array lignes [id, name, num, customer, type, ref, date, amount]
+     */
+    protected function detail_rows($block, $year, $month) {
+        list($from, $to) = $this->range($year, $month);
+        $deals = $this->t('ispag_deals_list');
+        $co    = $this->t('ispag_companies');
+        $cols  = "d.id, d.project_name AS name, d.project_num AS num, d.process_type AS type, d.offer_num AS ref, co.company_name AS customer";
+
+        if ($block === 'orders') {
+            $sql = $this->wpdb->prepare(
+                "SELECT {$cols}, g.first_date AS doc_date, " . $this->amount_sql('d') . " AS amount
+                 FROM (
+                     SELECT MIN(date_creation) AS first_date, MAX(id) AS last_id
+                     FROM {$deals}
+                     WHERE process_type = 'Commande' AND is_copie = 0
+                     GROUP BY COALESCE(NULLIF(deal_group_ref, ''), CONCAT('id', id))
+                 ) g
+                 INNER JOIN {$deals} d ON d.id = g.last_id
+                 LEFT JOIN {$co} co ON co.Id = d.associated_company_id
+                 WHERE g.first_date >= %s AND g.first_date < %s
+                 ORDER BY amount DESC",
+                $from, $to
+            );
+        } elseif ($block === 'invoicing') {
+            $sql = $this->wpdb->prepare(
+                "SELECT {$cols}, d.date_creation AS doc_date, " . $this->amount_sql('d') . " AS amount
+                 FROM {$deals} d LEFT JOIN {$co} co ON co.Id = d.associated_company_id
+                 WHERE d.is_copie = 0 AND (d.process_type LIKE 'Situation%%' OR d.process_type = 'Facture')
+                   AND d.date_creation >= %s AND d.date_creation < %s
+                 ORDER BY amount DESC",
+                $from, $to
+            );
+        } elseif ($block === 'credit') {
+            $sql = $this->wpdb->prepare(
+                "SELECT {$cols}, d.date_creation AS doc_date, ABS(" . $this->amount_sql('d') . ") AS amount
+                 FROM {$deals} d LEFT JOIN {$co} co ON co.Id = d.associated_company_id
+                 WHERE d.is_copie = 0 AND (d.process_type LIKE '%%cr_dit%%' OR d.process_type LIKE '%%avoir%%')
+                   AND d.date_creation >= %s AND d.date_creation < %s
+                 ORDER BY amount DESC",
+                $from, $to
+            );
+        } else { // offers : une ligne par deal (dernier document de la période)
+            $sql = $this->wpdb->prepare(
+                "SELECT {$cols}, g.first_date AS doc_date, " . $this->amount_sql('d') . " AS amount
+                 FROM (
+                     SELECT MIN(date_creation) AS first_date, MAX(id) AS last_id
+                     FROM {$deals}
+                     WHERE is_copie = 0 AND date_creation >= %s AND date_creation < %s
+                     GROUP BY COALESCE(NULLIF(deal_group_ref, ''), CONCAT('id', id))
+                 ) g
+                 INNER JOIN {$deals} d ON d.id = g.last_id
+                 LEFT JOIN {$co} co ON co.Id = d.associated_company_id
+                 ORDER BY g.first_date DESC, d.id DESC",
+                $from, $to
+            );
+        }
+        $rows = $this->wpdb->get_results($sql, ARRAY_A);
+        if ($this->wpdb->last_error) {
+            error_log('[ISPAG Monthly Report] ' . $this->wpdb->last_error);
+            return new WP_Error('db_error', $this->wpdb->last_error);
+        }
+        return (array) $rows;
+    }
+
+    public function ajax_detail() {
+        check_ajax_referer('ispag_pd_monthly_detail', 'nonce');
+        if (!current_user_can(ISPAG_Supplier_Dashboard::CAPABILITY)) {
+            wp_send_json_error(['message' => __('Access denied.', 'ispag-dashboard')], 403);
+        }
+        $block = isset($_POST['block']) ? sanitize_key(wp_unslash($_POST['block'])) : '';
+        if (!in_array($block, ['orders', 'invoicing', 'offers', 'credit'], true)) {
+            wp_send_json_error(['message' => 'Invalid block.'], 400);
+        }
+        // Les montants ne sont montrés qu'à ceux qui voient les prix de vente
+        if ($block !== 'offers' && !current_user_can('display_sales_prices')) {
+            wp_send_json_error(['message' => __('Access denied.', 'ispag-dashboard')], 403);
+        }
+        $year  = isset($_POST['year']) ? absint($_POST['year']) : 0;
+        $month = isset($_POST['month']) ? absint($_POST['month']) : 0;
+        if ($year < 2000 || $year > 2100) {
+            wp_send_json_error(['message' => 'Invalid year.'], 400);
+        }
+        $rows = $this->detail_rows($block, $year, $month);
+        if (is_wp_error($rows)) {
+            $msg = current_user_can('manage_options') ? $rows->get_error_message() : __('SQL error.', 'ispag-dashboard');
+            wp_send_json_error(['message' => $msg], 500);
+        }
+        $money = $block !== 'offers';
+        $out = [];
+        $total = 0.0;
+        foreach ($rows as $r) {
+            $amount = $money ? (float) $r['amount'] : 0.0;
+            $total += $amount;
+            $out[] = [
+                'name'     => (string) $r['name'],
+                'num'      => (string) $r['num'],
+                'customer' => (string) $r['customer'],
+                'type'     => (string) $r['type'],
+                'ref'      => (string) $r['ref'],
+                'date'     => $r['doc_date'] ? wp_date('d.m.Y', strtotime($r['doc_date'])) : '',
+                'amount'   => $money ? round($amount, 2) : null,
+                'url'      => home_url('/deal/' . (int) $r['id'] . '/'),
+            ];
+        }
+        wp_send_json_success(['rows' => $out, 'total' => round($total, 2), 'money' => $money]);
+    }
+
     // ------------------------------------------------------------------ affichage
 
     protected function month_names() {
@@ -312,6 +436,15 @@ class ISPAG_Monthly_Report {
         $p = ($cur / $prev - 1) * 100;
         $cls = $p >= 0 ? 'ispag-mr-up' : 'ispag-mr-down';
         return '<span class="' . $cls . '">' . esc_html(($p >= 0 ? '+' : '') . number_format($p, 1, '.', '')) . ' %</span>';
+    }
+
+    /** Chiffre cliquable (ouvre la liste des lignes qui le composent) ; une valeur nulle n'est pas cliquable. */
+    protected function cell($block, $title, $year, $month, $label, $value) {
+        if ($value == 0) {
+            return esc_html($label);
+        }
+        return '<a href="#" class="ispag-mr-cell" data-block="' . esc_attr($block) . '" data-title="' . esc_attr($title)
+            . '" data-year="' . (int) $year . '" data-month="' . (int) $month . '">' . esc_html($label) . '</a>';
     }
 
     /**
@@ -342,7 +475,7 @@ class ISPAG_Monthly_Report {
                             if ($edit && $edit_key === 'credit') {
                                 echo '<td class="num"><input type="text" inputmode="decimal" name="credit[' . (int) $y . '][' . $i . ']" value="' . esc_attr($data[$y][$i] ? $data[$y][$i] : '') . '"></td>';
                             } else {
-                                echo '<td class="num' . ($y === $year ? ' cur' : '') . '">' . esc_html($this->fmt($data[$y][$i], $money ? 2 : 0)) . '</td>';
+                                echo '<td class="num' . ($y === $year ? ' cur' : '') . '">' . $this->cell($key, $title, $y, $i, $this->fmt($data[$y][$i], $money ? 2 : 0), $data[$y][$i]) . '</td>';
                             }
                         endforeach; ?>
                         <?php if ($goal !== null) : ?>
@@ -357,7 +490,7 @@ class ISPAG_Monthly_Report {
                 <tfoot>
                     <tr>
                         <th><?php echo esc_html__('Total', 'ispag-dashboard'); ?></th>
-                        <?php foreach ($years as $y) echo '<td class="num' . ($y === $year ? ' cur' : '') . '"><strong>' . esc_html($this->fmt(array_sum($data[$y]), $money ? 2 : 0)) . '</strong></td>'; ?>
+                        <?php foreach ($years as $y) echo '<td class="num' . ($y === $year ? ' cur' : '') . '"><strong>' . $this->cell($key, $title, $y, 0, $this->fmt(array_sum($data[$y]), $money ? 2 : 0), array_sum($data[$y])) . '</strong></td>'; ?>
                         <?php if ($goal !== null) : ?>
                             <td class="num"><strong><?php echo esc_html($this->fmt($goal_total, 2)); ?></strong></td>
                             <td></td>
@@ -402,6 +535,14 @@ class ISPAG_Monthly_Report {
             .ispag-mr-table .cur { background: #f0f6fc; }
             .ispag-mr-table input { width: 88px; text-align: right; font-size: 12px; padding: 1px 4px; }
             .ispag-mr-table tfoot td, .ispag-mr-table tfoot th { border-top: 2px solid #2271b1; }
+            a.ispag-mr-cell { text-decoration: none; color: inherit; border-bottom: 1px dotted #2271b1; }
+            a.ispag-mr-cell:hover { color: #2271b1; }
+            #ispag-mr-modal { display: none; position: fixed; z-index: 100000; inset: 0; background: rgba(0,0,0,.5); overflow: auto; padding: 40px 20px; box-sizing: border-box; }
+            #ispag-mr-modal .inner { background: #fff; max-width: 1000px; margin: 0 auto; padding: 16px 22px 22px; border-radius: 6px; box-shadow: 0 8px 30px rgba(0,0,0,.3); }
+            #ispag-mr-modal .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+            #ispag-mr-modal h2 { margin: 0; font-size: 16px; }
+            .ispag-mr-modal-close { font-size: 26px; line-height: 1; cursor: pointer; color: #787c82; padding: 0 6px; border: 0; background: none; }
+            #ispag-mr-modal .num { text-align: right; white-space: nowrap; }
             .ispag-mr-up { color: #00a32a; } .ispag-mr-down { color: #b32d2e; }
         </style>
         <div class="wrap">
@@ -468,8 +609,52 @@ class ISPAG_Monthly_Report {
             <?php endif; ?>
         </div>
 
+        <div id="ispag-mr-modal" role="dialog" aria-modal="true" aria-labelledby="ispag-mr-modal-title">
+            <div class="inner">
+                <div class="head"><h2 id="ispag-mr-modal-title"></h2><button type="button" class="ispag-mr-modal-close" aria-label="<?php echo esc_attr__('Close', 'ispag-dashboard'); ?>">&times;</button></div>
+                <div id="ispag-mr-modal-body" style="margin-top:12px"></div>
+            </div>
+        </div>
         <script>
         document.addEventListener('DOMContentLoaded', function () {
+            var months = <?php echo wp_json_encode(array_values($this->month_names())); ?>;
+        // Clic sur un chiffre : liste des projets / documents qui le composent
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest('a.ispag-mr-cell');
+            if (!a) return;
+            e.preventDefault();
+            var box = document.getElementById('ispag-mr-modal'), body = document.getElementById('ispag-mr-modal-body');
+            var title = document.getElementById('ispag-mr-modal-title');
+            var monthLabel = +a.dataset.month ? months[a.dataset.month - 1] + ' ' : '';
+            title.textContent = a.dataset.title + ' — ' + monthLabel + a.dataset.year;
+            body.innerHTML = '<p><?php echo esc_js(__('Loading…', 'ispag-dashboard')); ?></p>';
+            box.style.display = 'block';
+            var fd = new FormData();
+            fd.append('action', 'ispag_pd_monthly_detail'); fd.append('nonce', <?php echo wp_json_encode(wp_create_nonce('ispag_pd_monthly_detail')); ?>);
+            fd.append('block', a.dataset.block); fd.append('year', a.dataset.year); fd.append('month', a.dataset.month);
+            fetch(<?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>, { method: 'POST', credentials: 'same-origin', body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (!j.success) { body.innerHTML = '<p class="ispag-mr-down">' + esc((j.data && j.data.message) || 'Error') + '</p>'; return; }
+                    var d = j.data, h = '';
+                    if (!d.rows.length) { body.innerHTML = '<p>—</p>'; return; }
+                    h += '<table class="widefat striped"><thead><tr><th><?php echo esc_js(__('Project', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Customer', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Document', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Date', 'ispag-dashboard')); ?></th>'
+                        + (d.money ? '<th class="num"><?php echo esc_js(__('Amount', 'ispag-dashboard')); ?></th>' : '') + '<th></th></tr></thead><tbody>';
+                    d.rows.forEach(function (r) {
+                        h += '<tr><td><strong>' + esc(r.num) + '</strong><br><small>' + esc(r.name) + '</small></td><td>' + esc(r.customer) + '</td><td>' + esc(r.type) + (r.ref ? '<br><small>' + esc(r.ref) + '</small>' : '') + '</td><td>' + esc(r.date) + '</td>'
+                            + (d.money ? '<td class="num">' + money(r.amount) + '</td>' : '')
+                            + '<td><a href="' + esc(r.url) + '" target="_blank" rel="noopener"><?php echo esc_js(__('Open', 'ispag-dashboard')); ?> ↗</a></td></tr>';
+                    });
+                    h += '</tbody><tfoot><tr><th colspan="4">' + d.rows.length + ' <?php echo esc_js(__('line(s)', 'ispag-dashboard')); ?></th>' + (d.money ? '<th class="num">' + money(d.total) + '</th>' : '') + '<th></th></tr></tfoot></table>';
+                    body.innerHTML = h;
+                })
+                .catch(function () { body.innerHTML = '<p class="ispag-mr-down">AJAX error</p>'; });
+        });
+        var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]; }); };
+        var money = function (v) { return Number(v).toLocaleString('fr-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+        var closeModal = function () { document.getElementById('ispag-mr-modal').style.display = 'none'; };
+        document.addEventListener('click', function (e) { if (e.target.id === 'ispag-mr-modal' || e.target.closest('.ispag-mr-modal-close')) closeModal(); });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
             if (typeof Chart === 'undefined') return;
             var months = <?php echo wp_json_encode(array_values($this->month_names())); ?>;
             var series = <?php echo wp_json_encode([
