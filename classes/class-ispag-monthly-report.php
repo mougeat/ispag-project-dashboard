@@ -4,13 +4,17 @@ defined('ABSPATH') or die();
 /**
  * Page admin « ISPAG stats → Monthly report » : remplace le tableau Excel mensuel.
  *
- * Quatre blocs, mois en lignes et années en colonnes, avec total et variation sur l'année précédente :
- *  - Entrée de commande : montant vendu des projets (hors offres), au mois de leur date de commande ;
- *  - Facturation        : montant des lignes de projet facturées, au mois de leur date de facturation ;
- *  - Rédaction d'offres : nombre d'offres (une par deal_group_ref, copies « ignorer les statistiques » exclues),
- *                         au mois de création ;
- *  - Note de crédit     : aucune donnée en base -> saisie manuelle.
- * Les objectifs mensuels (commandes, facturation) sont aussi saisis à la main.
+ * Quatre blocs, mois en lignes et années en colonnes, avec total et variation sur l'année précédente.
+ * Tout vient du CRM : ispag_deals_list contient un document par ligne (colonne process_type), rattaché à un deal
+ * (deal_group_ref) ; les lignes « ignorer les statistiques » (is_copie = 1) sont exclues partout.
+ *  - Entrée de commande : documents « Commande », une commande par deal (dernière version), montant HT
+ *                         au mois de création du premier document « Commande » du deal ;
+ *  - Facturation        : documents « Situation… » et « Facture » (la « Facture interne » est exclue), montant HT
+ *                         au mois de création du document ;
+ *  - Rédaction d'offres : nombre d'offres (une par deal), au mois de création ;
+ *  - Note de crédit     : documents dont le type contient « crédit » ou « avoir » ; une valeur saisie à la main
+ *                         pour un mois remplace celle du CRM.
+ * Les objectifs mensuels (commandes, facturation) sont saisis à la main.
  *
  * Valeurs manuelles : option ispag_pd_monthly_manual = ['credit' => [année => [12]], 'goal_orders' => [année => [12]],
  * 'goal_invoicing' => [année => [12]]].
@@ -90,34 +94,82 @@ class ISPAG_Monthly_Report {
         return [strtotime(reset($years) . '-01-01 00:00:00'), strtotime((end($years) + 1) . '-01-01 00:00:00')];
     }
 
-    /** Entrée de commande : montant vendu des projets, au mois de la date de commande. */
+    /** Montant HT d'une ligne de ispag_deals_list (colonne texte : apostrophes et virgules tolérées). */
+    protected function amount_sql($alias = 'd') {
+        return "CAST(REPLACE(REPLACE(NULLIF({$alias}.total_excl_vat, ''), CHAR(39), ''), ',', '.') AS DECIMAL(14,2))";
+    }
+
+    /** Entrée de commande : une commande par deal (dernière version), au mois du premier document « Commande ». */
     protected function orders(array $years) {
-        list($from, $to) = $this->window($years);
+        $from = reset($years) . '-01-01';
+        $to   = (end($years) + 1) . '-01-01';
         $rows = $this->wpdb->get_results($this->wpdb->prepare(
-            "SELECT FROM_UNIXTIME(p.TimestampDateCommande, '%%Y-%%m') AS ym,
-                    SUM(d.Qty * d.sales_price * (1 - d.discount / 100)) AS v
-             FROM {$this->t('achats_liste_commande')} p
-             INNER JOIN {$this->t('achats_details_commande')} d ON d.hubspot_deal_id = p.hubspot_deal_id AND d.archive = 0
-             WHERE (p.isQotation IS NULL OR p.isQotation = 0)
-               AND p.TimestampDateCommande >= %d AND p.TimestampDateCommande < %d
+            "SELECT DATE_FORMAT(g.first_date, '%%Y-%%m') AS ym, SUM(" . $this->amount_sql('o') . ") AS v
+             FROM (
+                 SELECT MIN(date_creation) AS first_date, MAX(id) AS last_id
+                 FROM {$this->t('ispag_deals_list')}
+                 WHERE process_type = 'Commande' AND is_copie = 0
+                 GROUP BY COALESCE(NULLIF(deal_group_ref, ''), CONCAT('id', id))
+             ) g
+             INNER JOIN {$this->t('ispag_deals_list')} o ON o.id = g.last_id
+             WHERE g.first_date >= %s AND g.first_date < %s
              GROUP BY ym",
             $from, $to
         ), ARRAY_A);
         return $this->bucket((array) $rows, $years);
     }
 
-    /** Facturation : lignes facturées, au mois de la date de facturation. */
+    /** Facturation : situations et factures (hors facture interne), au mois de création du document. */
     protected function invoicing(array $years) {
-        list($from, $to) = $this->window($years);
+        $from = reset($years) . '-01-01';
+        $to   = (end($years) + 1) . '-01-01';
         $rows = $this->wpdb->get_results($this->wpdb->prepare(
-            "SELECT FROM_UNIXTIME(d.invoiced, '%%Y-%%m') AS ym,
-                    SUM(d.Qty * d.sales_price * (1 - d.discount / 100)) AS v
-             FROM {$this->t('achats_details_commande')} d
-             WHERE d.archive = 0 AND d.invoiced IS NOT NULL AND d.invoiced >= %d AND d.invoiced < %d
+            "SELECT DATE_FORMAT(d.date_creation, '%%Y-%%m') AS ym, SUM(" . $this->amount_sql('d') . ") AS v
+             FROM {$this->t('ispag_deals_list')} d
+             WHERE d.is_copie = 0
+               AND (d.process_type LIKE 'Situation%%' OR d.process_type = 'Facture')
+               AND d.date_creation >= %s AND d.date_creation < %s
              GROUP BY ym",
             $from, $to
         ), ARRAY_A);
         return $this->bucket((array) $rows, $years);
+    }
+
+    /** Notes de crédit du CRM (montant en valeur absolue), au mois de création du document. */
+    protected function credit_notes(array $years) {
+        $from = reset($years) . '-01-01';
+        $to   = (end($years) + 1) . '-01-01';
+        $rows = $this->wpdb->get_results($this->wpdb->prepare(
+            "SELECT DATE_FORMAT(d.date_creation, '%%Y-%%m') AS ym, SUM(ABS(" . $this->amount_sql('d') . ")) AS v
+             FROM {$this->t('ispag_deals_list')} d
+             WHERE d.is_copie = 0
+               AND (d.process_type LIKE '%%cr_dit%%' OR d.process_type LIKE '%%avoir%%')
+               AND d.date_creation >= %s AND d.date_creation < %s
+             GROUP BY ym",
+            $from, $to
+        ), ARRAY_A);
+        return $this->bucket((array) $rows, $years);
+    }
+
+    /** Types de document présents pour l'année affichée (contrôle de la correspondance avec les blocs). */
+    protected function process_types($year) {
+        return (array) $this->wpdb->get_results($this->wpdb->prepare(
+            "SELECT COALESCE(NULLIF(process_type, ''), '(vide)') AS type, COUNT(*) AS n, SUM(is_copie = 1) AS copies
+             FROM {$this->t('ispag_deals_list')}
+             WHERE date_creation >= %s AND date_creation < %s
+             GROUP BY type ORDER BY n DESC",
+            $year . '-01-01', ($year + 1) . '-01-01'
+        ), ARRAY_A);
+    }
+
+    /** Une valeur saisie à la main (non nulle) remplace celle du CRM. */
+    protected function merge_manual(array $auto, array $manual) {
+        foreach ($manual as $y => $months) {
+            foreach ($months as $i => $v) {
+                if ($v != 0) $auto[$y][$i] = $v;
+            }
+        }
+        return $auto;
     }
 
     /** Rédaction d'offres : une offre par groupe de deal, au mois de création. */
@@ -164,7 +216,7 @@ class ISPAG_Monthly_Report {
             'orders'   => $prices ? $this->orders($years) : null,
             'invoicing' => $prices ? $this->invoicing($years) : null,
             'offers'   => $this->offers($years),
-            'credit'   => $prices ? $this->manual_series('credit', $years) : null,
+            'credit'   => $prices ? $this->merge_manual($this->credit_notes($years), $this->manual_series('credit', $years)) : null,
             'goal_orders'    => $prices ? $this->manual_series('goal_orders', [$year]) : null,
             'goal_invoicing' => $prices ? $this->manual_series('goal_invoicing', [$year]) : null,
         ];
@@ -389,7 +441,7 @@ class ISPAG_Monthly_Report {
                         $r['goal_invoicing'][$year], 'goal_invoicing', $can_edit);
                 } ?>
                 <?php $this->render_block(__('Offers written', 'ispag-dashboard'), 'offers', $r['offers'], $years, $year, false); ?>
-                <?php if ($prices) $this->render_block(sprintf(__('Credit notes (%s) — manual entry', 'ispag-dashboard'), $cur), 'credit', $r['credit'], $years, $year, true, null, '', $can_edit, 'credit'); ?>
+                <?php if ($prices) $this->render_block(sprintf(__('Credit notes (%s)', 'ispag-dashboard'), $cur), 'credit', $r['credit'], $years, $year, true, null, '', $can_edit, 'credit'); ?>
             </div>
 
             <?php if ($can_edit) : ?>
@@ -398,8 +450,22 @@ class ISPAG_Monthly_Report {
             <?php endif; ?>
 
             <p class="description">
-                <?php echo esc_html__('Orders: sold amount of the projects (offers excluded), in the month of the project order date. Invoicing: sold amount of the project lines marked as invoiced, in the month of their invoicing date. Offers: one per deal group, copies flagged "ignore statistics" excluded, in the month of creation. Goals and credit notes are typed in and saved here.', 'ispag-dashboard'); ?>
+                <?php echo esc_html__('Everything comes from the CRM deal documents. Orders: "Commande" documents, one per deal (latest version), in the month the first order document was created. Invoicing: "Situation" and "Facture" documents (internal invoices excluded), in the month of their creation. Offers: one per deal, in the month of creation. Credit notes: documents whose type contains "crédit" or "avoir"; an amount typed in below replaces the CRM one for that month. Documents flagged "ignore statistics" are always excluded. Goals are typed in.', 'ispag-dashboard'); ?>
             </p>
+            <?php if (current_user_can('manage_options')) : $types = $this->process_types($year); ?>
+                <details style="margin-top:10px">
+                    <summary><?php echo esc_html(sprintf(__('Document types found in the CRM for %d (to check the mapping)', 'ispag-dashboard'), $year)); ?></summary>
+                    <table class="widefat striped" style="max-width:520px;margin-top:6px">
+                        <thead><tr><th><?php echo esc_html__('Type', 'ispag-dashboard'); ?></th><th class="num"><?php echo esc_html__('Documents', 'ispag-dashboard'); ?></th><th class="num"><?php echo esc_html__('Ignored (statistics)', 'ispag-dashboard'); ?></th></tr></thead>
+                        <tbody>
+                        <?php foreach ($types as $t) : ?>
+                            <tr><td><?php echo esc_html($t['type']); ?></td><td class="num"><?php echo (int) $t['n']; ?></td><td class="num"><?php echo (int) $t['copies']; ?></td></tr>
+                        <?php endforeach; ?>
+                        <?php if (!$types) echo '<tr><td colspan="3">—</td></tr>'; ?>
+                        </tbody>
+                    </table>
+                </details>
+            <?php endif; ?>
         </div>
 
         <script>
