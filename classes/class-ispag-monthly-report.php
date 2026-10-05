@@ -16,8 +16,9 @@ defined('ABSPATH') or die();
  *                         pour un mois remplace celle du CRM.
  * Les objectifs mensuels (commandes, facturation) sont saisis à la main.
  *
- * Valeurs manuelles : option ispag_pd_monthly_manual = ['credit' => [année => [12]], 'goal_orders' => [année => [12]],
- * 'goal_invoicing' => [année => [12]]].
+ * Valeurs manuelles : option ispag_pd_monthly_manual = ['credit' => [année => [12]],
+ * 'goal_annual' => ['orders' => [année => montant], 'invoicing' => [année => montant]], 'goal_profile_years' => n].
+ * L'objectif annuel est réparti par mois selon la part moyenne de chaque mois dans les années précédentes.
  */
 class ISPAG_Monthly_Report {
 
@@ -211,16 +212,70 @@ class ISPAG_Monthly_Report {
     protected function report($year) {
         $years   = $this->years($year);
         $prices  = current_user_can('display_sales_prices');
+        $orders    = $prices ? $this->orders($years) : null;
+        $invoicing = $prices ? $this->invoicing($years) : null;
         return [
+            'goal_orders'    => $prices ? $this->goal_for('orders', $orders, $year) : null,
+            'goal_invoicing' => $prices ? $this->goal_for('invoicing', $invoicing, $year) : null,
             'years'    => $years,
             'prices'   => $prices,
-            'orders'   => $prices ? $this->orders($years) : null,
-            'invoicing' => $prices ? $this->invoicing($years) : null,
+            'orders'   => $orders,
+            'invoicing' => $invoicing,
             'offers'   => $this->offers($years),
             'credit'   => $prices ? $this->merge_manual($this->credit_notes($years), $this->manual_series('credit', $years)) : null,
-            'goal_orders'    => $prices ? $this->manual_series('goal_orders', [$year]) : null,
-            'goal_invoicing' => $prices ? $this->manual_series('goal_invoicing', [$year]) : null,
         ];
+    }
+
+    // ------------------------------------------------------------------ objectifs
+
+    /** Nombre d'années précédentes utilisées pour répartir l'objectif annuel sur les mois (1 à 7, 3 par défaut). */
+    protected function profile_years() {
+        $m = $this->manual();
+        $n = isset($m['goal_profile_years']) ? (int) $m['goal_profile_years'] : 3;
+        return max(1, min(7, $n));
+    }
+
+    /**
+     * Objectif mensuel = objectif annuel x part moyenne du mois dans les années précédentes.
+     * La part d'un mois pour une année = montant du mois / total de l'année ; on moyenne les parts des $n dernières
+     * années précédentes qui ont des données (chaque année pèse autant). Sans historique : 1/12 par mois.
+     * Repli : sans objectif annuel, les anciennes valeurs mensuelles saisies à la main sont reprises telles quelles.
+     *
+     * @param array $data   [année => [1..12 => valeur]] (réel)
+     * @param string $block 'orders' | 'invoicing'
+     * @return array ['months' => [1..12], 'annual' => float, 'shares' => [1..12], 'years' => int[] (années utilisées)]
+     */
+    protected function goal_for($block, array $data, $year) {
+        $m      = $this->manual();
+        $annual = (float) ($m['goal_annual'][$block][$year] ?? 0);
+        $n      = $this->profile_years();
+
+        $used = [];
+        for ($y = $year - 1; $y >= $year - 7 && count($used) < $n; $y--) {
+            if (isset($data[$y]) && array_sum($data[$y]) > 0) $used[] = $y;
+        }
+        $shares = array_fill(1, 12, 1 / 12);
+        if ($used) {
+            $shares = array_fill(1, 12, 0.0);
+            foreach ($used as $y) {
+                $tot = array_sum($data[$y]);
+                for ($i = 1; $i <= 12; $i++) $shares[$i] += $data[$y][$i] / $tot / count($used);
+            }
+        }
+
+        $months = array_fill(1, 12, 0.0);
+        if ($annual > 0) {
+            for ($i = 1; $i <= 12; $i++) $months[$i] = round($annual * $shares[$i], 2);
+        } else { // anciennes valeurs mensuelles (avant l'objectif annuel)
+            $legacy = $this->manual_series('goal_' . $block, [$year]);
+            if (array_sum($legacy[$year]) > 0) {
+                $months = $legacy[$year];
+                $annual = array_sum($months);
+                $used   = [];
+                for ($i = 1; $i <= 12; $i++) $shares[$i] = $annual > 0 ? $months[$i] / $annual : 0;
+            }
+        }
+        return ['months' => $months, 'annual' => $annual, 'shares' => $shares, 'years' => $used];
     }
 
     // ------------------------------------------------------------------ enregistrement & export
@@ -246,10 +301,22 @@ class ISPAG_Monthly_Report {
             }
             return $out;
         };
-        foreach (['credit', 'goal_orders', 'goal_invoicing'] as $key) {
-            foreach ($read($key) as $y => $vals) {
-                $m[$key][$y] = $vals;
+        foreach ($read('credit') as $y => $vals) {
+            $m['credit'][$y] = $vals;
+        }
+        // Objectifs annuels (un par bloc, pour l'année affichée) et nombre d'années de référence
+        $num = function ($v) {
+            $v = str_replace(["'", ' ', ','], ['', '', '.'], (string) $v);
+            return is_numeric($v) && $v > 0 ? (float) $v : 0.0;
+        };
+        $goals = isset($_POST['goal_annual']) && is_array($_POST['goal_annual']) ? wp_unslash($_POST['goal_annual']) : [];
+        foreach (['orders', 'invoicing'] as $block) {
+            if (isset($goals[$block])) {
+                $m['goal_annual'][$block][$year] = $num($goals[$block]);
             }
+        }
+        if (isset($_POST['goal_profile_years'])) {
+            $m['goal_profile_years'] = max(1, min(7, absint($_POST['goal_profile_years'])));
         }
         update_option(self::OPTION, $m, false);
         wp_safe_redirect(add_query_arg(['page' => self::PAGE_SLUG, 'year' => $year, 'saved' => 1], admin_url('admin.php')));
@@ -450,12 +517,26 @@ class ISPAG_Monthly_Report {
     /**
      * Un bloc du tableau. $goal : [mois => valeur] de l'année affichée (objectif) ou null ; $edit : champs de saisie.
      */
-    protected function render_block($title, $key, array $data, array $years, $year, $money, $goal = null, $goal_key = '', $edit = false, $edit_key = '') {
+    protected function render_block($title, $key, array $data, array $years, $year, $money, $goal = null, $goal_key = '', $edit = false, $edit_key = '', $goal_meta = null) {
         $names = $this->month_names();
         ?>
         <div class="ispag-mr-card">
             <h2><?php echo esc_html($title); ?></h2>
             <div class="ispag-mr-canvas"><canvas id="ispag-mr-chart-<?php echo esc_attr($key); ?>" role="img" aria-label="<?php echo esc_attr($title); ?>"></canvas></div>
+            <?php if ($goal !== null && $goal_meta !== null) : ?>
+                <p class="ispag-mr-goal">
+                    <label><strong><?php echo esc_html(sprintf(__('Annual goal %d', 'ispag-dashboard'), $year)); ?></strong>
+                    <?php if ($edit) : ?>
+                        <input type="text" inputmode="decimal" name="goal_annual[<?php echo esc_attr($goal_key); ?>]" value="<?php echo esc_attr($goal_meta['annual'] > 0 ? $goal_meta['annual'] : ''); ?>" placeholder="0">
+                    <?php else : echo esc_html($this->fmt($goal_meta['annual'], 0)); endif; ?>
+                    </label>
+                    <span class="description">
+                        <?php echo $goal_meta['years']
+                            ? esc_html(sprintf(__('Split by month on the average share of %s.', 'ispag-dashboard'), implode(', ', $goal_meta['years'])))
+                            : esc_html__('No history to split on: equal share per month.', 'ispag-dashboard'); ?>
+                    </span>
+                </p>
+            <?php endif; ?>
             <div style="overflow-x:auto">
             <table class="widefat striped ispag-mr-table">
                 <thead><tr>
@@ -479,9 +560,7 @@ class ISPAG_Monthly_Report {
                             }
                         endforeach; ?>
                         <?php if ($goal !== null) : ?>
-                            <td class="num"><?php if ($edit) : ?>
-                                <input type="text" inputmode="decimal" name="<?php echo esc_attr($goal_key); ?>[<?php echo (int) $year; ?>][<?php echo $i; ?>]" value="<?php echo esc_attr($goal[$i] ? $goal[$i] : ''); ?>">
-                            <?php else : echo esc_html($this->fmt($goal[$i], 2)); endif; ?></td>
+                            <td class="num"><?php echo esc_html($this->fmt($goal[$i], 0)); ?></td>
                             <td class="num"><?php echo $goal_total > 0 ? esc_html(number_format($goal[$i] / $goal_total * 100, 2, '.', '')) . ' %' : '—'; ?></td>
                         <?php endif; ?>
                     </tr>
@@ -492,7 +571,7 @@ class ISPAG_Monthly_Report {
                         <th><?php echo esc_html__('Total', 'ispag-dashboard'); ?></th>
                         <?php foreach ($years as $y) echo '<td class="num' . ($y === $year ? ' cur' : '') . '"><strong>' . $this->cell($key, $title, $y, 0, $this->fmt(array_sum($data[$y]), $money ? 2 : 0), array_sum($data[$y])) . '</strong></td>'; ?>
                         <?php if ($goal !== null) : ?>
-                            <td class="num"><strong><?php echo esc_html($this->fmt($goal_total, 2)); ?></strong></td>
+                            <td class="num"><strong><?php echo esc_html($this->fmt($goal_total, 0)); ?></strong></td>
                             <td></td>
                         <?php endif; ?>
                     </tr>
@@ -500,7 +579,7 @@ class ISPAG_Monthly_Report {
                         <th>Δ</th>
                         <?php foreach ($years as $idx => $y) echo '<td class="num">' . ($idx > 0 ? $this->yoy(array_sum($data[$y]), array_sum($data[$years[$idx - 1]])) : '') . '</td>'; ?>
                         <?php if ($goal !== null) : ?>
-                            <td class="num"><?php echo $goal_total > 0 ? $this->yoy(array_sum($data[$year]), $goal_total) : ''; ?></td><td></td>
+                            <td class="num" title="<?php echo esc_attr__('Actual total of the year as a share of the annual goal', 'ispag-dashboard'); ?>"><?php echo $goal_total > 0 ? esc_html(number_format(array_sum($data[$year]) / $goal_total * 100, 1, '.', '')) . ' %' : ''; ?></td><td></td>
                         <?php endif; ?>
                     </tr>
                 </tfoot>
@@ -543,6 +622,10 @@ class ISPAG_Monthly_Report {
             #ispag-mr-modal h2 { margin: 0; font-size: 16px; }
             .ispag-mr-modal-close { font-size: 26px; line-height: 1; cursor: pointer; color: #787c82; padding: 0 6px; border: 0; background: none; }
             #ispag-mr-modal .num { text-align: right; white-space: nowrap; }
+            #ispag-mr-modal .pj-name { font-size: 14px; font-weight: 600; line-height: 1.35; }
+            #ispag-mr-modal .pj-num { font-size: 12px; color: #646970; margin-top: 2px; }
+            #ispag-mr-modal td a { white-space: nowrap; }
+            .ispag-mr-goal { margin: 0 0 8px; } .ispag-mr-goal input { width: 130px; text-align: right; margin: 0 8px; }
             .ispag-mr-up { color: #00a32a; } .ispag-mr-down { color: #b32d2e; }
         </style>
         <div class="wrap">
@@ -577,21 +660,27 @@ class ISPAG_Monthly_Report {
             <div class="ispag-mr-grid">
                 <?php if ($prices) {
                     $this->render_block(sprintf(__('Orders received (%s)', 'ispag-dashboard'), $cur), 'orders', $r['orders'], $years, $year, true,
-                        $r['goal_orders'][$year], 'goal_orders', $can_edit);
+                        $r['goal_orders']['months'], 'orders', $can_edit, '', $r['goal_orders']);
                     $this->render_block(sprintf(__('Invoicing (%s)', 'ispag-dashboard'), $cur), 'invoicing', $r['invoicing'], $years, $year, true,
-                        $r['goal_invoicing'][$year], 'goal_invoicing', $can_edit);
+                        $r['goal_invoicing']['months'], 'invoicing', $can_edit, '', $r['goal_invoicing']);
                 } ?>
                 <?php $this->render_block(__('Offers written', 'ispag-dashboard'), 'offers', $r['offers'], $years, $year, false); ?>
                 <?php if ($prices) $this->render_block(sprintf(__('Credit notes (%s)', 'ispag-dashboard'), $cur), 'credit', $r['credit'], $years, $year, true, null, '', $can_edit, 'credit'); ?>
             </div>
 
             <?php if ($can_edit) : ?>
-                <p><button type="submit" class="button button-primary"><?php echo esc_html__('Save goals and credit notes', 'ispag-dashboard'); ?></button></p>
+                <p>
+                    <label><?php echo esc_html__('Split goals using the previous', 'ispag-dashboard'); ?>
+                        <select name="goal_profile_years">
+                            <?php for ($n = 1; $n <= 7; $n++) : ?><option value="<?php echo $n; ?>" <?php selected($n, $this->profile_years()); ?>><?php echo $n; ?></option><?php endfor; ?>
+                        </select> <?php echo esc_html__('year(s)', 'ispag-dashboard'); ?></label>
+                    &nbsp; <button type="submit" class="button button-primary"><?php echo esc_html__('Save goals and credit notes', 'ispag-dashboard'); ?></button>
+                </p>
             </form>
             <?php endif; ?>
 
             <p class="description">
-                <?php echo esc_html__('Everything comes from the CRM deal documents. Orders: "Commande" documents, one per deal (latest version), in the month the first order document was created. Invoicing: "Situation" and "Facture" documents (internal invoices excluded), in the month of their creation. Offers: one per deal, in the month of creation. Credit notes: documents whose type contains "crédit" or "avoir"; an amount typed in below replaces the CRM one for that month. Documents flagged "ignore statistics" are always excluded. Goals are typed in.', 'ispag-dashboard'); ?>
+                <?php echo esc_html__('Everything comes from the CRM deal documents. Orders: "Commande" documents, one per deal (latest version), in the month the first order document was created. Invoicing: "Situation" and "Facture" documents (internal invoices excluded), in the month of their creation. Offers: one per deal, in the month of creation. Credit notes: documents whose type contains "crédit" or "avoir"; an amount typed in below replaces the CRM one for that month. Documents flagged "ignore statistics" are always excluded. Goals: type the annual goal; each month gets the annual goal multiplied by the average share of that month in the previous years (each year weighs the same).', 'ispag-dashboard'); ?>
             </p>
             <?php if (current_user_can('manage_options')) : $types = $this->process_types($year); ?>
                 <details style="margin-top:10px">
@@ -641,7 +730,7 @@ class ISPAG_Monthly_Report {
                     h += '<table class="widefat striped"><thead><tr><th><?php echo esc_js(__('Project', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Customer', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Document', 'ispag-dashboard')); ?></th><th><?php echo esc_js(__('Date', 'ispag-dashboard')); ?></th>'
                         + (d.money ? '<th class="num"><?php echo esc_js(__('Amount', 'ispag-dashboard')); ?></th>' : '') + '<th></th></tr></thead><tbody>';
                     d.rows.forEach(function (r) {
-                        h += '<tr><td><strong>' + esc(r.num) + '</strong><br><small>' + esc(r.name) + '</small></td><td>' + esc(r.customer) + '</td><td>' + esc(r.type) + (r.ref ? '<br><small>' + esc(r.ref) + '</small>' : '') + '</td><td>' + esc(r.date) + '</td>'
+                        h += '<tr><td><div class="pj-name">' + esc(r.name || r.num) + '</div>' + (r.name && r.num ? '<div class="pj-num">' + esc(r.num) + '</div>' : '') + '</td><td>' + esc(r.customer) + '</td><td>' + esc(r.type) + (r.ref ? '<br><small>' + esc(r.ref) + '</small>' : '') + '</td><td>' + esc(r.date) + '</td>'
                             + (d.money ? '<td class="num">' + money(r.amount) + '</td>' : '')
                             + '<td><a href="' + esc(r.url) + '" target="_blank" rel="noopener"><?php echo esc_js(__('Open', 'ispag-dashboard')); ?> ↗</a></td></tr>';
                     });
@@ -658,8 +747,8 @@ class ISPAG_Monthly_Report {
             if (typeof Chart === 'undefined') return;
             var months = <?php echo wp_json_encode(array_values($this->month_names())); ?>;
             var series = <?php echo wp_json_encode([
-                'orders'    => $prices ? ['cur' => array_values($r['orders'][$year]), 'prev' => array_values($r['orders'][$prev] ?? array_fill(0, 12, 0)), 'goal' => array_values($r['goal_orders'][$year])] : null,
-                'invoicing' => $prices ? ['cur' => array_values($r['invoicing'][$year]), 'prev' => array_values($r['invoicing'][$prev] ?? array_fill(0, 12, 0)), 'goal' => array_values($r['goal_invoicing'][$year])] : null,
+                'orders'    => $prices ? ['cur' => array_values($r['orders'][$year]), 'prev' => array_values($r['orders'][$prev] ?? array_fill(0, 12, 0)), 'goal' => array_values($r['goal_orders']['months'])] : null,
+                'invoicing' => $prices ? ['cur' => array_values($r['invoicing'][$year]), 'prev' => array_values($r['invoicing'][$prev] ?? array_fill(0, 12, 0)), 'goal' => array_values($r['goal_invoicing']['months'])] : null,
                 'offers'    => ['cur' => array_values($r['offers'][$year]), 'prev' => array_values($r['offers'][$prev] ?? array_fill(0, 12, 0)), 'goal' => null],
                 'credit'    => $prices ? ['cur' => array_values($r['credit'][$year]), 'prev' => array_values($r['credit'][$prev] ?? array_fill(0, 12, 0)), 'goal' => null] : null,
             ]); ?>;
