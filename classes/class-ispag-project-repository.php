@@ -98,7 +98,7 @@ class ISPAG_Project_Repository {
 
             $sales_total = (float) ($s['sales_total'] ?? 0);
             $invoiced    = (float) ($s['invoiced_amount'] ?? 0);
-            $lines       = (int) ($s['lines'] ?? 0);
+            $lines       = (int) ($s['line_count'] ?? 0);
             $delivered   = (int) ($s['delivered_lines'] ?? 0);
             $cost        = (float) ($a['cost'] ?? 0);
             $foreign     = (int) ($a['foreign_lines'] ?? 0);
@@ -173,7 +173,7 @@ class ISPAG_Project_Repository {
         $now = time();
         $rows = $this->wpdb->get_results($this->wpdb->prepare(
             "SELECT d.hubspot_deal_id AS deal_id,
-                    COUNT(*) AS lines,
+                    COUNT(*) AS line_count,
                     SUM(d.Qty * d.sales_price * (1 - d.discount / 100)) AS sales_total,
                     SUM(CASE WHEN d.Livre = 1 THEN 1 ELSE 0 END) AS delivered_lines,
                     SUM(CASE WHEN d.invoiced IS NOT NULL AND d.invoiced > 0

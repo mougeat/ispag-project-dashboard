@@ -146,7 +146,8 @@ class ISPAG_Project_Dashboard {
             </form>
 
             <?php if (is_wp_error($data)) : ?>
-                <div class="notice notice-error"><p><?php echo esc_html__('SQL error while computing project statistics.', 'ispag-dashboard'); ?></p></div>
+                <div class="notice notice-error"><p><?php echo esc_html__('SQL error while computing project statistics.', 'ispag-dashboard'); ?></p>
+                    <?php if (current_user_can('manage_options')) : ?><p><code><?php echo esc_html($data->get_error_message()); ?></code></p><?php endif; ?></div>
             <?php else :
                 $t = $data['totals']; ?>
 
