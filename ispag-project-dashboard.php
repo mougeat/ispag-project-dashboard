@@ -38,6 +38,9 @@ ISPAG_GitHub_Updater::plugin(__FILE__, 'mougeat/ispag-project-dashboard');
 
 require_once ISPAG_PD_PATH . 'classes/class-ispag-supplier-repository.php';
 require_once ISPAG_PD_PATH . 'classes/class-ispag-supplier-dashboard.php';
+require_once ISPAG_PD_PATH . 'classes/class-ispag-project-repository.php';
+require_once ISPAG_PD_PATH . 'classes/class-ispag-project-dashboard.php';
 
 // Initialisation de la classe
 ISPAG_Supplier_Dashboard::run();
+ISPAG_Project_Dashboard::run();
